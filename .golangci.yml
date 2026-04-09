@@ -1,0 +1,41 @@
+version: "2"
+
+linters:
+  default: all
+  disable:
+    - depguard
+    - exhaustruct
+    - godox
+    - ireturn
+    - mnd
+    - nlreturn
+    - nonamedreturns
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    govet:
+      enable-all: true
+    revive:
+      rules:
+        - name: unexported-return
+          disabled: true
+
+linters-settings:
+  importas:
+    no-unaliased: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
