@@ -22,14 +22,12 @@ linters:
       default-signifies-exhaustive: true
     govet:
       enable-all: true
+    importas:
+      no-unaliased: true
     revive:
       rules:
         - name: unexported-return
           disabled: true
-
-linters-settings:
-  importas:
-    no-unaliased: true
 
 formatters:
   enable:

@@ -36,7 +36,7 @@ tidy: ## Run go mod tidy.
 .PHONY: verify-tidy
 verify-tidy: ## Verify go.mod and go.sum are tidy.
 	go mod tidy
-	git diff --exit-code go.mod go.sum
+	@if [ -f go.sum ]; then git diff --exit-code go.mod go.sum; else git diff --exit-code go.mod; fi
 
 .PHONY: verify-fmt
 verify-fmt: ## Verify code is formatted.
