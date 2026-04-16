@@ -27,7 +27,69 @@ for full API documentation.
 
 | Package | Description |
 |---------|-------------|
-| *Coming soon* | Utility packages will be added as they are extracted from the ODH Operator |
+| `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
+| `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
+| `pkg/render/template` | Go `text/template` renderer with dynamic data support |
+| `pkg/render/cacher` | Generic render caching layer (skip re-render when inputs unchanged) |
+| `pkg/render` | Shared types (`ReconciliationRequest`, `Fn`), Prometheus metrics |
+| `pkg/resources` | Kubernetes resource helpers (`Decode`, `SetLabels`, `SetAnnotations`, `UnstructuredList`) |
+| `pkg/template` | Template function map (`indent`, `nindent`, `toYaml`) |
+
+## Manifest Rendering
+
+Module controllers embed their own manifests and use these utilities to render
+them into `[]unstructured.Unstructured` before applying to the cluster.
+
+### Standalone usage
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/render/helm"
+
+resources, err := helm.Render(ctx, chartSources,
+    helm.WithLabel("app.kubernetes.io/part-of", "my-component"),
+    helm.WithAnnotation("platform.opendatahub.io/release", "1.0.0"),
+)
+```
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
+
+resources, err := kustomize.Render(manifestPath,
+    []kustomize.EngineOptsFn{kustomize.WithEngineFS(embeddedFS)},
+    kustomize.WithNamespace("my-namespace"),
+    kustomize.WithLabel("app", "my-component"),
+)
+```
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/render/template"
+
+resources, err := template.Render(ctx, scheme, sources, templateData,
+    template.WithLabel("app", "my-component"),
+)
+```
+
+### Action pipeline usage
+
+For teams using the reconciler builder pattern:
+
+```go
+import (
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/render"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/render/helm"
+)
+
+action := helm.NewAction(
+    []helm.Option{helm.WithLabel("app", "my-component")},
+    helm.WithCache(true),
+)
+
+// action is a render.Fn that reads rr.HelmCharts and writes to rr.Resources
+err := action(ctx, &rr)
+```
+
+See [pkg/render/AGENTS.md](./pkg/render/AGENTS.md) for detailed documentation
+on each engine, caching behavior, and namespace injection.
 
 ## Versioning
 

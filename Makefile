@@ -3,6 +3,15 @@ COVERAGE_FILE ?= cover.out
 
 GOLANGCI_LINT = $(shell which golangci-lint 2>/dev/null)
 
+# Pin the toolchain to the exact Go version declared in go.mod so that
+# the race-instrumented stdlib is compiled with the same compiler version
+# used for user code.  Without this, `go test -race` may fail when the
+# locally installed Go (e.g. 1.25.5) differs from the go.mod directive
+# (e.g. 1.25.7) because the downloaded toolchain cannot reuse the race
+# stdlib compiled by the local install.
+GO_MOD_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
+export GOTOOLCHAIN := go$(GO_MOD_VERSION)
+
 .PHONY: all
 all: fmt vet lint test
 
