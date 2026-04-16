@@ -28,7 +28,9 @@ for full API documentation.
 | Package | Description |
 |---------|-------------|
 | `api/common` | Platform contract: `PlatformObject` interface, `Status`, `Condition`, `ComponentRelease` types, condition/phase constants |
-| `pkg/cluster` | Singleton enforcement runtime helper (`GetSingleton[T]`) |
+| `pkg/metadata/labels` | Platform label key constants and `NormalizePartOfValue` helper |
+| `pkg/metadata/annotations` | Platform annotation key constants |
+| `pkg/cluster` | Functional options for setting labels, annotations, owner references, and namespace on `client.Object`; singleton enforcement (`GetSingleton[T]`) |
 | `pkg/webhook` | Admission webhook helpers for singleton validation (`ValidateSingletonCreation`) |
 | `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
 | `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
@@ -43,6 +45,62 @@ for full API documentation.
 Module controllers that participate in the ODH platform must implement the
 `PlatformObject` interface. See [docs/platform-object-contract.md](./docs/platform-object-contract.md)
 for the full contract specification and a copy-pasteable implementation example.
+
+## Metadata Conventions
+
+The platform uses a set of well-known labels and annotations as conventions
+between the orchestrator, module controllers, and deployed resources. The
+`pkg/metadata` and `pkg/cluster` packages give module teams a single import
+for all platform metadata, avoiding string duplication and drift across repos.
+
+### Contract (orchestrator requires these)
+
+| Kind | Constant | Value | Purpose |
+|------|----------|-------|---------|
+| Label | `labels.ManagedBy` | `components.platform.opendatahub.io/managed-by` | Orchestrator discovery -- must be present on bootstrap resources |
+| Annotation | `annotations.ManagementStateAnnotation` | `component.opendatahub.io/management-state` | Orchestrator writes `Managed` / `Removed` on module CRs |
+| Annotation | `annotations.ManagedByODHOperator` | `opendatahub.io/managed` | Set to `"false"` to opt a resource out of updates (create-only) |
+
+### Recommended standard (consistency across modules)
+
+| Kind | Constant | Value | Purpose |
+|------|----------|-------|---------|
+| Label | `labels.PlatformPartOf` | `platform.opendatahub.io/part-of` | Controller ownership -- used by GC label selector |
+| Label | `labels.PlatformDependency` | `platform.opendatahub.io/dependency` | Dependency relationships |
+| Label | `labels.InfrastructurePartOf` | `infrastructure.opendatahub.io/part-of` | Infrastructure-layer ownership |
+| Annotation | `annotations.PlatformVersion` | `platform.opendatahub.io/version` | Release version at deploy time |
+| Annotation | `annotations.PlatformType` | `platform.opendatahub.io/type` | Platform type at deploy time |
+| Annotation | `annotations.InstanceGeneration` | `platform.opendatahub.io/instance.generation` | CR generation at deploy time |
+| Annotation | `annotations.InstanceName` | `platform.opendatahub.io/instance.name` | CR name for event routing |
+| Annotation | `annotations.InstanceUID` | `platform.opendatahub.io/instance.uid` | CR UID for stale-resource detection |
+
+See [pkg/metadata/AGENTS.md](./pkg/metadata/AGENTS.md) for detailed semantics,
+the deploy/GC annotation lifecycle, and the opt-out convention.
+
+```go
+import (
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/annotations"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+)
+
+// Use constants directly
+partOf, err := labels.NormalizePartOfValue("MyComponent")
+if err != nil {
+    return err
+}
+obj.SetLabels(map[string]string{
+    labels.PlatformPartOf: partOf,
+    labels.ManagedBy:      "my-controller",
+})
+
+// Or use the functional-option helpers
+cluster.ApplyMetaOptions(obj,
+    cluster.WithLabels(labels.PlatformPartOf, partOf),
+    cluster.WithAnnotations(annotations.InstanceName, "my-cr"),
+    cluster.InNamespace("target-ns"),
+)
+```
 
 ## Manifest Rendering
 

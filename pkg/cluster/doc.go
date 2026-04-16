@@ -1,5 +1,6 @@
 // Package cluster provides runtime helpers for working with cluster-scoped
-// singleton custom resources.
+// singleton custom resources and functional options for setting metadata
+// (labels, annotations, owner references, namespace) on Kubernetes objects.
 //
 // The ODH Onboarding Guide mandates that all module CRDs are cluster-scoped
 // singletons with enforced naming. [GetSingleton] is a generic function that
