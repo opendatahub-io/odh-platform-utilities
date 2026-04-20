@@ -30,7 +30,9 @@ for full API documentation.
 | `api/common` | Platform contract: `PlatformObject` interface, `Status`, `Condition`, `ComponentRelease` types, condition/phase constants |
 | `pkg/metadata/labels` | Platform label key constants and `NormalizePartOfValue` helper |
 | `pkg/metadata/annotations` | Platform annotation key constants |
-| `pkg/cluster` | Functional options for setting labels, annotations, owner references, and namespace on `client.Object`; singleton enforcement (`GetSingleton[T]`) |
+| `pkg/cluster` | Cluster type detection, FIPS detection, platform variant detection, CRD existence checks; functional options for labels, annotations, owner references |
+| `pkg/cluster/openshift` | OpenShift-specific queries: version, SNO, auth mode, domain |
+| `pkg/cluster/olm` | OLM-specific queries: operator existence, subscription lookup |
 | `pkg/webhook` | Admission webhook helpers for singleton validation (`ValidateSingletonCreation`) |
 | `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
 | `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
@@ -102,6 +104,79 @@ cluster.ApplyMetaOptions(obj,
 )
 ```
 
+## Cluster Detection
+
+Module controllers need to discover facts about the cluster they're running
+on. This library provides two detection layers:
+
+### Am I on OpenShift?
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+
+clusterType, err := cluster.DetectClusterType(ctx, client)
+if clusterType == cluster.ClusterTypeOpenShift {
+    // OpenShift-specific logic
+}
+
+// Or get full cluster info (type + version + FIPS)
+info, err := cluster.DetectClusterInfo(ctx, client)
+```
+
+### What platform variant am I?
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+
+// platformType typically comes from ODH_PLATFORM_TYPE env var
+platform, err := cluster.DetectPlatform(ctx, client, os.Getenv("ODH_PLATFORM_TYPE"), operatorNs)
+switch platform {
+case cluster.OpenDataHub:
+case cluster.SelfManagedRhoai:
+case cluster.ManagedRhoai:
+case cluster.XKS:
+}
+```
+
+### Is this CRD available?
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+
+err := cluster.CustomResourceDefinitionExists(ctx, client, schema.GroupKind{
+    Group: "serving.kserve.io",
+    Kind:  "InferenceService",
+})
+```
+
+### OpenShift-specific queries
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/openshift"
+
+version, err := openshift.GetVersion(ctx, client)
+isSNO, err := openshift.IsSingleNodeCluster(ctx, client)
+authMode, err := openshift.GetAuthenticationMode(ctx, client)
+domain, err := openshift.GetDomain(ctx, client)
+```
+
+### OLM queries
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/olm"
+
+info, err := olm.OperatorExists(ctx, client, "rhods-operator")
+exists, err := olm.SubscriptionExists(ctx, client, "my-operator")
+```
+
+All functions are stateless (no singletons, no `Init()`), accept
+`client.Reader` + `context.Context`, and use unstructured clients internally
+so they do not pull in `github.com/openshift/api` or
+`github.com/operator-framework/api`.
+
+See [pkg/cluster/AGENTS.md](./pkg/cluster/AGENTS.md) for detailed
+documentation on the two-layer model, error behavior, and dependency
+strategy.
 ## Manifest Rendering
 
 Module controllers embed their own manifests and use these utilities to render
