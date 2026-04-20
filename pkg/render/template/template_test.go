@@ -224,6 +224,59 @@ func TestRenderTemplateWithCache(t *testing.T) {
 }
 
 //nolint:paralleltest
+func TestRenderTemplateWithDataFnInvalidatesCache(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := t.Context()
+	ns := xid.New().String()
+
+	calls := 0
+
+	action := tmpl.NewAction(
+		tmpl.WithData(map[string]any{
+			tmpl.AppNamespaceKey: ns,
+		}),
+		tmpl.WithDataFn(func(_ context.Context) (map[string]any, error) {
+			calls++
+
+			return map[string]any{"Dyn": calls}, nil
+		}),
+	)
+
+	render.RenderedResourcesTotal.Reset()
+
+	inst := testInstance(ns)
+
+	rr := render.ReconciliationRequest{
+		Instance:  inst,
+		Templates: []render.TemplateInfo{{FS: testFS, Path: "resources/dyn.tmpl.yaml"}},
+	}
+
+	err := action(ctx, &rr)
+
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Generated).Should(BeTrue())
+	g.Expect(rr.Resources[0].GetAnnotations()).Should(HaveKeyWithValue("dyn", "1"))
+
+	rc := testutil.ToFloat64(render.RenderedResourcesTotal)
+	g.Expect(rc).Should(BeNumerically("==", 1))
+
+	rr2 := render.ReconciliationRequest{
+		Instance:  inst,
+		Templates: []render.TemplateInfo{{FS: testFS, Path: "resources/dyn.tmpl.yaml"}},
+	}
+
+	err = action(ctx, &rr2)
+
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr2.Generated).Should(BeTrue())
+	g.Expect(rr2.Resources[0].GetAnnotations()).Should(HaveKeyWithValue("dyn", "2"))
+
+	rc = testutil.ToFloat64(render.RenderedResourcesTotal)
+	g.Expect(rc).Should(BeNumerically("==", 2))
+}
+
+//nolint:paralleltest
 func TestRenderTemplateWithGlob(t *testing.T) {
 	ctx := t.Context()
 	ns := xid.New().String()

@@ -28,7 +28,7 @@ type ActionOption func(*action)
 func WithCache(enabled bool) ActionOption {
 	return func(a *action) {
 		if enabled {
-			a.cacher.SetKeyFn(render.Hash)
+			a.cacher.SetKeyFn(a.cacheKey)
 		} else {
 			a.cacher.SetKeyFn(nil)
 		}
@@ -58,7 +58,7 @@ func NewAction(renderOpts []Option, actionOpts ...ActionOption) render.Fn {
 		opts:   renderOpts,
 	}
 
-	a.cacher.SetKeyFn(render.Hash)
+	a.cacher.SetKeyFn(a.cacheKey)
 
 	for _, opt := range actionOpts {
 		opt(&a)

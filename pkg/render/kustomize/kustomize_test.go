@@ -1,6 +1,7 @@
 package kustomize_test
 
 import (
+	"context"
 	"path"
 	"testing"
 
@@ -432,4 +433,73 @@ func TestRenderResourcesWithCacheAction(t *testing.T) { //nolint:funlen
 			g.Expect(rr.Generated).Should(BeFalse())
 		}
 	}
+}
+
+// TestNamespaceFnChangeInvalidatesCache asserts the Kustomize action cache key
+// includes the resolved application namespace. When WithActionNamespaceFn returns
+// a different namespace on a later reconcile (same instance + manifests), the
+// cacher must miss and re-render; a third reconcile with a stable namespace hits.
+//
+//nolint:paralleltest
+func TestNamespaceFnChangeInvalidatesCache(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := t.Context()
+	id := xid.New().String()
+	ns1 := xid.New().String()
+	ns2 := xid.New().String()
+	fs := filesys.MakeFsInMemory()
+
+	_ = fs.MkdirAll(path.Join(id, kustomize.DefaultKustomizationFilePath))
+	_ = fs.WriteFile(path.Join(id, kustomize.DefaultKustomizationFileName), []byte(testCacheKustomization))
+	_ = fs.WriteFile(path.Join(id, "test-resources-deployment.yaml"), []byte(testCacheDeployment))
+
+	currentNS := ns1
+
+	action := kustomize.NewAction(
+		[]kustomize.EngineOptsFn{kustomize.WithEngineFS(fs)},
+		kustomize.WithActionNamespaceFn(func(context.Context) (string, error) {
+			return currentNS, nil
+		}),
+	)
+
+	render.RenderedResourcesTotal.Reset()
+
+	inst := testInstance()
+
+	rr := render.ReconciliationRequest{
+		Instance:  inst,
+		Manifests: []render.ManifestInfo{{Path: id}},
+	}
+
+	err := action(ctx, &rr)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Generated).Should(BeTrue())
+	g.Expect(rr.Resources).Should(HaveLen(1))
+	g.Expect(rr.Resources[0].GetNamespace()).Should(Equal(ns1))
+	g.Expect(testutil.ToFloat64(render.RenderedResourcesTotal)).Should(BeNumerically("==", 1))
+
+	currentNS = ns2
+
+	rr2 := render.ReconciliationRequest{
+		Instance:  inst,
+		Manifests: []render.ManifestInfo{{Path: id}},
+	}
+
+	err = action(ctx, &rr2)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr2.Generated).Should(BeTrue())
+	g.Expect(rr2.Resources[0].GetNamespace()).Should(Equal(ns2))
+	g.Expect(testutil.ToFloat64(render.RenderedResourcesTotal)).Should(BeNumerically("==", 2))
+
+	rr3 := render.ReconciliationRequest{
+		Instance:  inst,
+		Manifests: []render.ManifestInfo{{Path: id}},
+	}
+
+	err = action(ctx, &rr3)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr3.Generated).Should(BeFalse())
+	g.Expect(rr3.Resources[0].GetNamespace()).Should(Equal(ns2))
+	g.Expect(testutil.ToFloat64(render.RenderedResourcesTotal)).Should(BeNumerically("==", 2))
 }

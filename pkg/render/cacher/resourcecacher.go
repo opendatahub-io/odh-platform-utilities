@@ -12,7 +12,8 @@ import (
 
 // CachingKeyFn computes a cache key from the ReconciliationRequest.
 // The returned byte slice MUST NOT be empty by contract.
-type CachingKeyFn func(rr *render.ReconciliationRequest) ([]byte, error)
+// ctx is the reconciliation context (deadlines, cancellation, values loading).
+type CachingKeyFn func(ctx context.Context, rr *render.ReconciliationRequest) ([]byte, error)
 
 // Renderer is the function signature for rendering resources from a
 // ReconciliationRequest.
@@ -21,6 +22,9 @@ type Renderer func(ctx context.Context, rr *render.ReconciliationRequest) (resou
 // ResourceCacher wraps a generic Cacher specialized for UnstructuredList and
 // integrates Prometheus metrics and the ReconciliationRequest lifecycle
 // (Generated flag, Resources accumulation).
+//
+// A ResourceCacher instance must not be used concurrently from multiple
+// goroutines (matches typical single-threaded reconcile per object).
 type ResourceCacher struct { //nolint:govet
 	Cacher[resources.UnstructuredList]
 
@@ -50,7 +54,7 @@ func (s *ResourceCacher) Render(ctx context.Context, rr *render.ReconciliationRe
 
 	if s.keyFn != nil {
 		keyFn = func() ([]byte, error) {
-			return s.keyFn(rr)
+			return s.keyFn(ctx, rr)
 		}
 	}
 

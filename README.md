@@ -104,6 +104,8 @@ See [docs/VERSIONING.md](./docs/VERSIONING.md) for the full versioning strategy.
 
 ## Development
 
+See [AGENTS.md](./AGENTS.md) for repository layout, quality gates, and pointers to subsystem documentation (including [pkg/render/AGENTS.md](./pkg/render/AGENTS.md) for manifest rendering).
+
 ### Prerequisites
 
 - Go 1.25+

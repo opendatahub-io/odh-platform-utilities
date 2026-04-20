@@ -53,7 +53,7 @@ func newTestCacher() *testCacher {
 	}
 
 	rc := cacher.NewResourceCacher("test")
-	rc.SetKeyFn(c.hash)
+	rc.SetKeyFn(c.hashFn)
 	c.c = &rc
 	c.rr.Instance = &unstructured.Unstructured{
 		Object: map[string]any{
@@ -75,10 +75,10 @@ func (s *testCacher) setResources(r []unstructured.Unstructured) {
 	s.rr.Resources = r
 }
 
-func (s *testCacher) hash(
-	rr *render.ReconciliationRequest,
+func (s *testCacher) hashFn(
+	ctx context.Context, rr *render.ReconciliationRequest,
 ) ([]byte, error) {
-	args := s.Called(rr)
+	args := s.Called(ctx, rr)
 
 	return args.Get(0).([]byte), args.Error(1) //nolint:errcheck,forcetypeassert
 }
@@ -96,7 +96,7 @@ func TestCacherShouldRenderFirstRun(t *testing.T) {
 	g := NewWithT(t)
 	m := newTestCacher()
 
-	m.On("hash", m.rr).Return(newHash(), nil).Once()
+	m.On("hashFn", m.ctx, m.rr).Return(newHash(), nil).Once()
 	m.On("doRender", m.ctx, m.rr).Return(m.r, nil).Once()
 
 	err := m.c.Render(m.ctx, m.rr, m.doRender)
@@ -113,7 +113,7 @@ func TestCacherShouldNotRenderSecondRun(t *testing.T) {
 	g := NewWithT(t)
 	m := newTestCacher()
 
-	m.On("hash", m.rr).Return(newHash(), nil).Twice()
+	m.On("hashFn", m.ctx, m.rr).Return(newHash(), nil).Twice()
 	m.On("doRender", m.ctx, m.rr).Return(m.r, nil).Once()
 
 	_ = m.c.Render(m.ctx, m.rr, m.doRender)
@@ -134,8 +134,8 @@ func TestCacherShouldRenderDifferentKey(t *testing.T) {
 	m := newTestCacher()
 
 	m.
-		On("hash", m.rr).Return(newHash(), nil).Once().
-		On("hash", m.rr).Return(newHash(), nil).Once()
+		On("hashFn", m.ctx, m.rr).Return(newHash(), nil).Once().
+		On("hashFn", m.ctx, m.rr).Return(newHash(), nil).Once()
 	m.On("doRender", m.ctx, m.rr).Return(m.r, nil).Twice()
 
 	_ = m.c.Render(m.ctx, m.rr, m.doRender)
@@ -176,7 +176,7 @@ func TestCacherShouldErrorIfKeyError(t *testing.T) {
 	g := NewWithT(t)
 	m := newTestCacher()
 
-	m.On("hash", m.rr).Return(newHash(), errHashing).Once()
+	m.On("hashFn", m.ctx, m.rr).Return(newHash(), errHashing).Once()
 
 	err := m.c.Render(m.ctx, m.rr, m.doRender)
 
@@ -192,7 +192,7 @@ func TestCacherShouldErrorIfRenderError(t *testing.T) {
 	g := NewWithT(t)
 	m := newTestCacher()
 
-	m.On("hash", m.rr).Return(newHash(), nil).Once()
+	m.On("hashFn", m.ctx, m.rr).Return(newHash(), nil).Once()
 	m.On("doRender", m.ctx, m.rr).Return(cacher.Zero[resources.UnstructuredList](), errRender).Once()
 
 	err := m.c.Render(m.ctx, m.rr, m.doRender)
@@ -215,7 +215,7 @@ func TestCacherShouldAddResources(t *testing.T) {
 	expected := append([]unstructured.Unstructured{}, orig...)
 	expected = append(expected, m.r...)
 
-	m.On("hash", m.rr).Return(newHash(), nil).Once()
+	m.On("hashFn", m.ctx, m.rr).Return(newHash(), nil).Once()
 	m.On("doRender", m.ctx, m.rr).Return(m.r, nil).Once()
 
 	err := m.c.Render(m.ctx, m.rr, m.doRender)

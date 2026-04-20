@@ -13,11 +13,23 @@ const rendererEngine = "template"
 // action wraps the standalone Render function with caching and the
 // ReconciliationRequest lifecycle.
 type action struct {
-	cacher cacher.ResourceCacher
-	opts   actionOpts
+	templateData map[string]any
+	cacher       cacher.ResourceCacher
+	opts         actionOpts
 }
 
 func (a *action) run(ctx context.Context, rr *render.ReconciliationRequest) error {
+	data, err := buildData(ctx, &a.opts, rr.Instance)
+	if err != nil {
+		return err
+	}
+
+	a.templateData = data
+
+	defer func() {
+		a.templateData = nil
+	}()
+
 	return a.cacher.Render(ctx, rr, a.render)
 }
 
@@ -26,9 +38,14 @@ func (a *action) render(ctx context.Context, rr *render.ReconciliationRequest) (
 		return nil, nil
 	}
 
-	data, err := buildData(ctx, &a.opts, rr.Instance)
-	if err != nil {
-		return nil, err
+	data := a.templateData
+	if data == nil {
+		var err error
+
+		data, err = buildData(ctx, &a.opts, rr.Instance)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	sources := make([]TemplateSource, len(rr.Templates))
@@ -62,7 +79,7 @@ func NewAction(opts ...ActionOption) render.Fn {
 	}
 
 	if !o.cacheDisabled {
-		a.cacher.SetKeyFn(render.Hash)
+		a.cacher.SetKeyFn(a.cacheKey)
 	}
 
 	return a.run

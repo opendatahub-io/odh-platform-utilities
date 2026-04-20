@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dyn
+  namespace: {{ .AppNamespace }}
+  annotations:
+    dyn: "{{ .Dyn }}"
+data:
+  v: "{{ .Dyn }}"

@@ -13,6 +13,8 @@ var errEmptyHash = errors.New("calculated empty hash")
 
 // Cacher is a generic caching layer for rendering functions. It wraps a
 // renderer and skips re-rendering when the cache key has not changed.
+//
+// A Cacher must not be used concurrently from multiple goroutines.
 type Cacher[T any] struct {
 	cachedResources T
 	cachingKey      []byte

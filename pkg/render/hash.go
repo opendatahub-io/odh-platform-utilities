@@ -11,9 +11,12 @@ import (
 
 // Hash computes a SHA-256 hash of the ReconciliationRequest inputs that
 // influence rendering output. It considers the Instance UID and generation,
-// manifest paths, template paths, and Helm chart identity+values.
+// manifest paths, template paths (including per-template labels and
+// annotations), and Helm chart identity+values.
 // This is the default CachingKeyFn for action-pipeline renderers.
-func Hash(rr *ReconciliationRequest) ([]byte, error) {
+//
+// ctx is passed to Helm chart Values loaders; use it for cancellation and deadlines.
+func Hash(ctx context.Context, rr *ReconciliationRequest) ([]byte, error) {
 	h := sha256.New()
 
 	instanceGeneration := make([]byte, binary.MaxVarintLen64)
@@ -34,7 +37,7 @@ func Hash(rr *ReconciliationRequest) ([]byte, error) {
 		return nil, err
 	}
 
-	err = hashHelmCharts(h, rr)
+	err = hashHelmCharts(ctx, h, rr)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +51,19 @@ func hashWrite(h hash.Hash, data []byte) error {
 	return err
 }
 
+func hashStringMap(h hash.Hash, m map[string]string) error {
+	if len(m) == 0 {
+		return hashWrite(h, []byte("{}"))
+	}
+
+	b, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("failed to hash string map: %w", err)
+	}
+
+	return hashWrite(h, b)
+}
+
 func hashManifests(h hash.Hash, rr *ReconciliationRequest) error {
 	for i := range rr.Manifests {
 		err := hashWrite(h, []byte(rr.Manifests[i].String()))
@@ -59,14 +75,24 @@ func hashManifests(h hash.Hash, rr *ReconciliationRequest) error {
 	for i := range rr.Templates {
 		err := hashWrite(h, []byte(rr.Templates[i].Path))
 		if err != nil {
-			return fmt.Errorf("failed to hash template: %w", err)
+			return fmt.Errorf("failed to hash template path: %w", err)
+		}
+
+		err = hashStringMap(h, rr.Templates[i].Labels)
+		if err != nil {
+			return fmt.Errorf("failed to hash template labels: %w", err)
+		}
+
+		err = hashStringMap(h, rr.Templates[i].Annotations)
+		if err != nil {
+			return fmt.Errorf("failed to hash template annotations: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func hashHelmCharts(h hash.Hash, rr *ReconciliationRequest) error {
+func hashHelmCharts(ctx context.Context, h hash.Hash, rr *ReconciliationRequest) error {
 	for i := range rr.HelmCharts {
 		err := hashWrite(h, []byte(rr.HelmCharts[i].Chart))
 		if err != nil {
@@ -82,7 +108,7 @@ func hashHelmCharts(h hash.Hash, rr *ReconciliationRequest) error {
 			continue
 		}
 
-		err = hashHelmValues(h, rr, i)
+		err = hashHelmValues(ctx, h, rr, i)
 		if err != nil {
 			return err
 		}
@@ -91,8 +117,8 @@ func hashHelmCharts(h hash.Hash, rr *ReconciliationRequest) error {
 	return nil
 }
 
-func hashHelmValues(h hash.Hash, rr *ReconciliationRequest, idx int) error {
-	values, err := rr.HelmCharts[idx].Values(context.TODO())
+func hashHelmValues(ctx context.Context, h hash.Hash, rr *ReconciliationRequest, idx int) error {
+	values, err := rr.HelmCharts[idx].Values(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get helm chart values: %w", err)
 	}

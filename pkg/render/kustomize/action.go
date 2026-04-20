@@ -35,7 +35,7 @@ func WithActionEngineOpts(values ...EngineOptsFn) ActionOption {
 func WithCache(enabled bool) ActionOption {
 	return func(a *action) {
 		if enabled {
-			a.cacher.SetKeyFn(render.Hash)
+			a.cacher.SetKeyFn(a.cacheKey)
 		} else {
 			a.cacher.SetKeyFn(nil)
 		}
@@ -105,7 +105,7 @@ func NewAction(engineOpts []EngineOptsFn, actionOpts ...ActionOption) render.Fn 
 		ke:     NewEngine(engineOpts...),
 	}
 
-	a.cacher.SetKeyFn(render.Hash)
+	a.cacher.SetKeyFn(a.cacheKey)
 
 	for _, opt := range actionOpts {
 		opt(&a)

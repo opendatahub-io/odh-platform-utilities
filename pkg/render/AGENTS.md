@@ -76,10 +76,33 @@ Manifests, Templates) and write rendered resources to `rr.Resources`.
 ## Caching
 
 All action adapters cache rendered resources by default. A render is skipped
-when the hash of the `ReconciliationRequest` inputs (instance UID+generation,
-manifest paths, template paths, chart identity+values) has not changed.
+when the cache key is unchanged. The base key, `render.Hash(ctx, rr)`, covers:
+
+- Instance UID and generation
+- Kustomize manifest paths (`ManifestInfo`)
+- Template paths and per-template labels and annotations (`TemplateInfo`)
+- Helm chart identity and values from each chart’s `Values(ctx)` loader
+
+**Helm (`helm.NewAction`)** extends the base key with a digest of render
+options (labels, annotations, and transformer identity). Pass `ctx` into
+`render.Hash` so Helm values loading respects cancellation and deadlines.
+
+**Kustomize (`kustomize.NewAction`)** extends the base key with the resolved
+action namespace (from `WithActionNamespace` or `WithActionNamespaceFn`).
+Content changes under a fixed on-disk path are **not** detected; use embedded
+manifests, bump instance generation, or disable caching when directories are
+mutable.
+
+**Template (`template.NewAction`)** extends the base key with the resolved
+template data map (excluding `Component`, which mirrors the instance already
+hashed) and with a digest of action-level `WithAction*` label/annotation
+options plus each `text/template` function identity. Template data is built
+once per reconciliation (`buildData`) and reused for both keying and
+rendering.
 
 - Cache is keyed per-action instance (each `NewAction()` call has its own cache).
+- `Cacher` / `ResourceCacher` are intended for single-threaded use per action
+  (typical controller-runtime reconcile).
 - Disable with `WithCache(false)`.
 - When served from cache, `rr.Generated` remains `false`; downstream GC actions
   can use this to skip unnecessary work.
