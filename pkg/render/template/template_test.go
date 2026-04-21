@@ -174,6 +174,59 @@ func TestRenderTemplateWithDataErr(t *testing.T) {
 }
 
 //nolint:paralleltest
+func TestRenderTemplateWithNamespaceFnEmptyDoesNotOverrideStatic(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := t.Context()
+	ns := xid.New().String()
+	name := xid.New().String()
+
+	action := tmpl.NewAction(
+		tmpl.WithCache(false),
+		tmpl.WithNamespace(ns),
+		tmpl.WithNamespaceFn(func(_ context.Context) (string, error) {
+			return "", nil
+		}),
+	)
+
+	rr := render.ReconciliationRequest{
+		Instance:  testInstance(name),
+		Templates: []render.TemplateInfo{{FS: testFS, Path: "resources/smm.tmpl.yaml"}},
+	}
+
+	err := action(ctx, &rr)
+
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Resources).Should(HaveLen(1))
+	g.Expect(rr.Resources[0].GetNamespace()).Should(Equal(ns))
+}
+
+//nolint:paralleltest
+func TestRenderTemplateWithNamespaceFnError(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := t.Context()
+
+	action := tmpl.NewAction(
+		tmpl.WithCache(false),
+		tmpl.WithNamespace("fallback"),
+		tmpl.WithNamespaceFn(func(_ context.Context) (string, error) {
+			return "", errComputeData
+		}),
+	)
+
+	rr := render.ReconciliationRequest{
+		Instance:  testInstance("test"),
+		Templates: []render.TemplateInfo{{FS: testFS, Path: "resources/smm.tmpl.yaml"}},
+	}
+
+	err := action(ctx, &rr)
+
+	g.Expect(err).Should(HaveOccurred())
+	g.Expect(err.Error()).Should(ContainSubstring("unable to compute template namespace"))
+}
+
+//nolint:paralleltest
 func TestRenderTemplateWithCache(t *testing.T) {
 	g := NewWithT(t)
 
