@@ -27,6 +27,9 @@ for full API documentation.
 
 | Package | Description |
 |---------|-------------|
+| `api/common` | Platform contract: `PlatformObject` interface, `Status`, `Condition`, `ComponentRelease` types, condition/phase constants |
+| `pkg/cluster` | Singleton enforcement runtime helper (`GetSingleton[T]`) |
+| `pkg/webhook` | Admission webhook helpers for singleton validation (`ValidateSingletonCreation`) |
 | `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
 | `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
 | `pkg/render/template` | Go `text/template` renderer with dynamic data support |
@@ -34,6 +37,12 @@ for full API documentation.
 | `pkg/render` | Shared types (`ReconciliationRequest`, `Fn`), Prometheus metrics |
 | `pkg/resources` | Kubernetes resource helpers (`Decode`, `SetLabels`, `SetAnnotations`, `UnstructuredList`) |
 | `pkg/template` | Template function map (`indent`, `nindent`, `toYaml`) |
+
+## Platform Contract
+
+Module controllers that participate in the ODH platform must implement the
+`PlatformObject` interface. See [docs/platform-object-contract.md](./docs/platform-object-contract.md)
+for the full contract specification and a copy-pasteable implementation example.
 
 ## Manifest Rendering
 
