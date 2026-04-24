@@ -202,6 +202,35 @@ func TestRenderTemplateWithNamespaceFnEmptyDoesNotOverrideStatic(t *testing.T) {
 }
 
 //nolint:paralleltest
+func TestRenderTemplateWithNamespaceFnNonEmptyOverridesStatic(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := t.Context()
+	staticNs := xid.New().String()
+	dynamicNs := xid.New().String()
+	name := xid.New().String()
+
+	action := tmpl.NewAction(
+		tmpl.WithCache(false),
+		tmpl.WithNamespace(staticNs),
+		tmpl.WithNamespaceFn(func(_ context.Context) (string, error) {
+			return dynamicNs, nil
+		}),
+	)
+
+	rr := render.ReconciliationRequest{
+		Instance:  testInstance(name),
+		Templates: []render.TemplateInfo{{FS: testFS, Path: "resources/smm.tmpl.yaml"}},
+	}
+
+	err := action(ctx, &rr)
+
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Resources).Should(HaveLen(1))
+	g.Expect(rr.Resources[0].GetNamespace()).Should(Equal(dynamicNs))
+}
+
+//nolint:paralleltest
 func TestRenderTemplateWithNamespaceFnError(t *testing.T) {
 	g := NewWithT(t)
 
