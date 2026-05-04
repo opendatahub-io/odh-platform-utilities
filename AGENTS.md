@@ -53,6 +53,10 @@ pkg/
     labels/        Contract and recommended label keys, NormalizePartOfValue.
   webhook/         Admission webhook helpers for singleton validation
                    (ValidateSingletonCreation, CountObjects, DenyCountGtZero).
+  controller/      Controller utilities.
+    conditions/    Knative-inspired condition management with automatic
+                   aggregation, severity-based filtering, Manager pattern,
+                   and low-level condition CRUD helpers.
   render/          Manifest rendering engines (Helm, Kustomize, Go template).
     cacher/        Render caching layer.
     helm/          Helm chart renderer.
@@ -86,6 +90,9 @@ examples/          Runnable usage examples.
 | `Hash` | `pkg/resources` | SHA-256 content hash of unstructured resource |
 | `Apply` | `pkg/resources` | Server-side apply wrapper |
 | `SortByApplyOrder` | `pkg/resources` | Dependency-order resource sorting |
+| `Manager` | `pkg/controller/conditions` | Condition manager with automatic aggregation |
+| `SetStatusCondition` | `pkg/controller/conditions` | Upsert condition with transition time management |
+| `FindStatusCondition` | `pkg/controller/conditions` | Get deep copy of a condition |
 
 ## Build, Test, and Lint Commands
 
