@@ -63,7 +63,14 @@ pkg/
     kustomize/     Kustomize overlay renderer.
     template/      Go text/template renderer.
   resources/       Kubernetes resource helpers (Decode, Hash, Apply, Sort,
-                   SetLabels, FormatObjectReference, etc.).
+                   SetLabels, FormatObjectReference, HasAnnotation,
+                   GetAnnotation, IsOwnedByType,
+                   GetGroupVersionKindForObject, ListAvailableAPIResources,
+                   Resource type).
+  controller/
+    conditions/    Condition management (Manager, SetStatusCondition, etc.).
+    gc/            Garbage collection (Collector, RBAC authorization,
+                   predicates, metrics).
   template/        Template function map (indent, nindent, toYaml).
 
 docs/              Documentation beyond GoDoc.
@@ -93,6 +100,10 @@ examples/          Runnable usage examples.
 | `Manager` | `pkg/controller/conditions` | Condition manager with automatic aggregation |
 | `SetStatusCondition` | `pkg/controller/conditions` | Upsert condition with transition time management |
 | `FindStatusCondition` | `pkg/controller/conditions` | Get deep copy of a condition |
+| `gc.Collector` | `pkg/controller/gc` | Garbage collection of stale resources |
+| `gc.RunParams` | `pkg/controller/gc` | Per-reconcile inputs for GC |
+| `gc.ListAuthorizedResources` | `pkg/controller/gc` | RBAC-filtered resource discovery |
+| `resources.Resource` | `pkg/resources` | API resource type with GVR/GVK/scope |
 
 ## Build, Test, and Lint Commands
 

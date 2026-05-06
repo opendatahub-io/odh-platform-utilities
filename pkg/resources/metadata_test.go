@@ -138,3 +138,87 @@ func TestSetAnnotationsOverwrite(t *testing.T) {
 		"key": "new",
 	}))
 }
+
+func TestHasAnnotationWithValue_Found(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":        "test",
+				"annotations": map[string]any{"managed": "true"},
+			},
+		},
+	}
+
+	g.Expect(resources.HasAnnotationWithValue(obj, "managed", "true")).Should(BeTrue())
+}
+
+func TestHasAnnotationWithValue_WrongValue(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":        "test",
+				"annotations": map[string]any{"managed": "true"},
+			},
+		},
+	}
+
+	g.Expect(resources.HasAnnotationWithValue(obj, "managed", "false")).Should(BeFalse())
+}
+
+func TestHasAnnotationWithValue_Missing(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "test"},
+		},
+	}
+
+	g.Expect(resources.HasAnnotationWithValue(obj, "managed", "true")).Should(BeFalse())
+}
+
+func TestGetAnnotation_Found(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":        "test",
+				"annotations": map[string]any{"version": "1.0.0"},
+			},
+		},
+	}
+
+	g.Expect(resources.GetAnnotation(obj, "version")).Should(Equal("1.0.0"))
+}
+
+func TestGetAnnotation_Missing(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "test"},
+		},
+	}
+
+	g.Expect(resources.GetAnnotation(obj, "version")).Should(BeEmpty())
+}

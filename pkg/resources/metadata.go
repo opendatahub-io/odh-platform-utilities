@@ -2,6 +2,7 @@ package resources
 
 import (
 	"maps"
+	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -93,6 +94,22 @@ func GetAnnotation(obj client.Object, key string) string {
 func HasAnnotation(obj client.Object, key string) bool {
 	_, ok := obj.GetAnnotations()[key]
 	return ok
+}
+
+// HasAnnotationWithValue returns true if the object has the given annotation
+// key set to one of the specified values.
+func HasAnnotationWithValue(obj client.Object, key string, values ...string) bool {
+	target := obj.GetAnnotations()
+	if target == nil {
+		return false
+	}
+
+	val, found := target[key]
+	if !found {
+		return false
+	}
+
+	return slices.Contains(values, val)
 }
 
 // RemoveAnnotation removes an annotation by key. It is a no-op if the
