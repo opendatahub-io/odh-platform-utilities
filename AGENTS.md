@@ -44,7 +44,13 @@ api/
                    DeepCopy methods.
 
 pkg/
-  cluster/         Singleton enforcement runtime helper (GetSingleton[T]).
+  cluster/         Singleton enforcement, metadata options (GetSingleton[T],
+                   MetaOptions, OwnerRefFrom, ControlledBy, OwnedBy).
+  deploy/          Resource deployment utilities: SSA/patch deploy with
+                   pluggable merge strategies, caching, ordering, metrics.
+  metadata/        Well-known label and annotation constants.
+    annotations/   Contract and recommended annotation keys.
+    labels/        Contract and recommended label keys, NormalizePartOfValue.
   webhook/         Admission webhook helpers for singleton validation
                    (ValidateSingletonCreation, CountObjects, DenyCountGtZero).
   render/          Manifest rendering engines (Helm, Kustomize, Go template).
@@ -52,7 +58,8 @@ pkg/
     helm/          Helm chart renderer.
     kustomize/     Kustomize overlay renderer.
     template/      Go text/template renderer.
-  resources/       Kubernetes resource helpers (Decode, SetLabels, etc.).
+  resources/       Kubernetes resource helpers (Decode, Hash, Apply, Sort,
+                   SetLabels, FormatObjectReference, etc.).
   template/        Template function map (indent, nindent, toYaml).
 
 docs/              Documentation beyond GoDoc.
@@ -72,6 +79,13 @@ examples/          Runnable usage examples.
 | `ManagementSpec` | `api/common` | Management state (Managed/Removed) |
 | `GetSingleton[T]` | `pkg/cluster` | Retrieve the single CR instance |
 | `ValidateSingletonCreation` | `pkg/webhook` | Admission webhook singleton guard |
+| `Deployer` | `pkg/deploy` | Stateful deployer with cache, merge, ordering |
+| `MergeFn` | `pkg/deploy` | Pluggable merge strategy per GVK |
+| `Cache` | `pkg/deploy` | TTL-based deploy fingerprint cache |
+| `MergeDeployments` | `pkg/deploy` | Preserve user-set replicas/resources |
+| `Hash` | `pkg/resources` | SHA-256 content hash of unstructured resource |
+| `Apply` | `pkg/resources` | Server-side apply wrapper |
+| `SortByApplyOrder` | `pkg/resources` | Dependency-order resource sorting |
 
 ## Build, Test, and Lint Commands
 
