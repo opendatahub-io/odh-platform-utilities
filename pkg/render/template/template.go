@@ -186,10 +186,12 @@ func buildData(
 	if o.nsFn != nil {
 		ns, err := o.nsFn(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to compute template namespace: %w", err)
 		}
 
-		data[AppNamespaceKey] = ns
+		if ns != "" {
+			data[AppNamespaceKey] = ns
+		}
 	}
 
 	return data, nil
