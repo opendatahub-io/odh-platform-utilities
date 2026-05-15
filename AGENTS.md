@@ -42,6 +42,8 @@ api/
                    Condition, ComponentRelease types, Phase/Condition
                    constants, ManagementSpec, accessor interfaces,
                    DeepCopy methods.
+    testutil/      Contract compliance test helper
+                   (ValidatePlatformObject).
 
 pkg/
   cluster/         Singleton enforcement, metadata options (GetSingleton[T],
@@ -88,6 +90,7 @@ examples/          Runnable usage examples.
 | `ConditionTypeReady` | `api/common` | Mandatory condition type constant |
 | `ComponentRelease` | `api/common` | Release metadata for a component |
 | `ManagementSpec` | `api/common` | Management state (Managed/Removed) |
+| `ValidatePlatformObject` | `api/common/testutil` | Contract compliance test helper |
 | `GetSingleton[T]` | `pkg/cluster` | Retrieve the single CR instance |
 | `ValidateSingletonCreation` | `pkg/webhook` | Admission webhook singleton guard |
 | `Deployer` | `pkg/deploy` | Stateful deployer with cache, merge, ordering |
