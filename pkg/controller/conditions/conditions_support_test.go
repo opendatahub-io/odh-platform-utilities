@@ -404,6 +404,48 @@ func TestIsStatusConditionPresentAndEqual(t *testing.T) {
 	}
 }
 
+func TestSetStatusCondition_ClearsLastHeartbeatTime(t *testing.T) {
+	t.Parallel()
+
+	accessor := &testAccessor{}
+
+	now := metav1.Now()
+	cond := common.Condition{
+		Type:              "TestCondition",
+		Status:            metav1.ConditionTrue,
+		Reason:            "Success",
+		Message:           "Test message",
+		LastHeartbeatTime: &now,
+	}
+
+	conditions.SetStatusCondition(accessor, cond)
+
+	result := accessor.GetConditions()[0]
+	if result.LastHeartbeatTime != nil { //nolint:staticcheck // testing deprecated field
+		t.Error("expected LastHeartbeatTime to be cleared by SetStatusCondition")
+	}
+}
+
+func TestStatusSatisfiesConditionsAccessor(t *testing.T) {
+	t.Parallel()
+
+	var _ common.ConditionsAccessor = &common.Status{}
+
+	status := &common.Status{}
+	status.SetConditions([]common.Condition{
+		{Type: "Ready", Status: metav1.ConditionTrue},
+	})
+
+	conds := status.GetConditions()
+	if len(conds) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(conds))
+	}
+
+	if conds[0].Type != "Ready" {
+		t.Errorf("expected type Ready, got %s", conds[0].Type)
+	}
+}
+
 // conditionExists checks if a condition exists in a slice.
 func conditionExists(conds []common.Condition, condType string) bool {
 	for _, c := range conds {

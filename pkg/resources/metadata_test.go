@@ -139,6 +139,90 @@ func TestSetAnnotationsOverwrite(t *testing.T) {
 	}))
 }
 
+func TestHasLabelWithValue_Found(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":   "test",
+				"labels": map[string]any{"env": "prod"},
+			},
+		},
+	}
+
+	g.Expect(resources.HasLabelWithValue(obj, "env", "prod")).Should(BeTrue())
+	g.Expect(resources.HasLabelWithValue(obj, "env", "dev", "prod")).Should(BeTrue())
+}
+
+func TestHasLabelWithValue_WrongValue(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":   "test",
+				"labels": map[string]any{"env": "prod"},
+			},
+		},
+	}
+
+	g.Expect(resources.HasLabelWithValue(obj, "env", "dev")).Should(BeFalse())
+}
+
+func TestHasLabelWithValue_KeyMissing(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":   "test",
+				"labels": map[string]any{"app": "myapp"},
+			},
+		},
+	}
+
+	g.Expect(resources.HasLabelWithValue(obj, "env", "prod")).Should(BeFalse())
+}
+
+func TestHasLabelWithValue_NilLabels(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "test"},
+		},
+	}
+
+	g.Expect(resources.HasLabelWithValue(obj, "anything", "val")).Should(BeFalse())
+}
+
+func TestHasLabelWithValue_NilObject(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	g.Expect(resources.HasLabelWithValue(nil, "key", "val")).Should(BeFalse())
+}
+
+func TestHasAnnotationWithValue_NilObject(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	g.Expect(resources.HasAnnotationWithValue(nil, "key", "val")).Should(BeFalse())
+}
+
 func TestHasAnnotationWithValue_Found(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)

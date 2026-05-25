@@ -48,6 +48,8 @@ func SetStatusCondition(accessor common.ConditionsAccessor, newCondition common.
 
 	conditions := accessor.GetConditions()
 
+	newCondition.LastHeartbeatTime = nil //nolint:staticcheck // intentionally clearing deprecated field
+
 	ensureTransitionTime(&newCondition)
 
 	existingIdx := findConditionIndex(conditions, newCondition.Type)

@@ -46,6 +46,26 @@ func HasLabel(obj client.Object, key string) bool {
 	return ok
 }
 
+// HasLabelWithValue returns true if the object has the given label key set to
+// one of the specified values. Returns false for nil objects.
+func HasLabelWithValue(obj client.Object, key string, values ...string) bool {
+	if obj == nil {
+		return false
+	}
+
+	target := obj.GetLabels()
+	if target == nil {
+		return false
+	}
+
+	val, found := target[key]
+	if !found {
+		return false
+	}
+
+	return slices.Contains(values, val)
+}
+
 // RemoveLabel removes a label by key. It is a no-op if the label is absent.
 func RemoveLabel(obj client.Object, key string) {
 	l := obj.GetLabels()
@@ -97,8 +117,12 @@ func HasAnnotation(obj client.Object, key string) bool {
 }
 
 // HasAnnotationWithValue returns true if the object has the given annotation
-// key set to one of the specified values.
+// key set to one of the specified values. Returns false for nil objects.
 func HasAnnotationWithValue(obj client.Object, key string, values ...string) bool {
+	if obj == nil {
+		return false
+	}
+
 	target := obj.GetAnnotations()
 	if target == nil {
 		return false

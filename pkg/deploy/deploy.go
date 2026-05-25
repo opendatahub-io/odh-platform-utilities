@@ -39,6 +39,23 @@ var ErrUnsupportedMode = errors.New("unsupported deploy mode")
 // SortFn defines a function that reorders resources before deployment.
 type SortFn func(ctx context.Context, resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
 
+// Then returns a new SortFn that applies s first, then passes the result to
+// next. This allows composing multiple sort strategies sequentially.
+func (s SortFn) Then(next SortFn) SortFn {
+	if next == nil {
+		return s
+	}
+
+	return func(ctx context.Context, resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+		output, err := s(ctx, resources)
+		if err != nil {
+			return nil, err
+		}
+
+		return next(ctx, output)
+	}
+}
+
 // ReleaseInfo provides release metadata stamped as annotations on every
 // deployed resource for GC and diagnostics.
 type ReleaseInfo struct {

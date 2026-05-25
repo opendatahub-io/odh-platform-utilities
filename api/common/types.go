@@ -90,40 +90,63 @@ const (
 //
 // +kubebuilder:object:generate=true
 type Condition struct {
-	// LastTransitionTime is the last time the condition transitioned from one
-	// status to another.
-	// +required
+	// lastTransitionTime is the last time the condition transitioned from
+	// one status to another.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
 	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
 
-	// Type is the condition type, e.g. ConditionTypeReady, ConditionTypeDegraded.
+	// Deprecated: LastHeartbeatTime is present only for backward
+	// compatibility with existing CRDs. New code should not set this field.
+	//
+	// +optional
+	// +kubebuilder:validation:Optional
+	LastHeartbeatTime *metav1.Time `json:"lastHeartbeatTime,omitempty"`
+
+	// type of condition in CamelCase or in foo.example.com/CamelCase.
+	//
 	// +required
-	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=316
+	//nolint:lll // kubebuilder marker cannot be split
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
 	Type string `json:"type"`
 
-	// Status is the status of the condition (True, False, Unknown).
+	// status of the condition, one of True, False, Unknown.
 	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=True;False;Unknown
 	Status metav1.ConditionStatus `json:"status"`
 
-	// Reason is a programmatic, one-word CamelCase identifier for the
-	// condition's last transition, suitable for machine consumption.
+	// reason contains a programmatic identifier indicating the reason for
+	// the condition's last transition. The value should be a CamelCase
+	// string.
+	//
 	// +optional
 	// +kubebuilder:validation:Optional
 	Reason string `json:"reason,omitempty"`
 
-	// Message is a human-readable description providing details about the
-	// condition's last transition.
+	// message is a human-readable message indicating details about the
+	// transition.
 	// +optional
+	// +kubebuilder:validation:Optional
 	Message string `json:"message,omitempty"`
 
 	// Severity indicates whether this condition represents an error or is
 	// purely informational. Empty string (default) indicates error severity.
 	// +optional
+	// +kubebuilder:validation:Optional
 	Severity ConditionSeverity `json:"severity,omitempty"`
 
-	// ObservedGeneration is the .metadata.generation of the resource that
-	// the condition was set based upon. If this does not match the resource's
+	// observedGeneration represents the .metadata.generation that the
+	// condition was set based upon. If this does not match the resource's
 	// current generation, the condition is likely stale.
+	//
 	// +optional
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Minimum=0
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
@@ -147,6 +170,19 @@ type Status struct {
 	// by the controller. It allows consumers to determine whether the
 	// controller has processed the latest spec changes.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// GetConditions returns the current conditions.
+func (s *Status) GetConditions() []Condition {
+	return s.Conditions
+}
+
+// SetConditions replaces the conditions slice with a defensive copy.
+func (s *Status) SetConditions(conditions []Condition) {
+	cpy := make([]Condition, len(conditions))
+	copy(cpy, conditions)
+
+	s.Conditions = cpy
 }
 
 // --- Release Types ---

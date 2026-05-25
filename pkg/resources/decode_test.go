@@ -96,6 +96,33 @@ metadata:
 	g.Expect(result[0].GetName()).Should(Equal("has-kind"))
 }
 
+func TestDecodeYAMLProducesLowercaseKindKey(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// yaml.v3 preserves original casing, so Decode's out["kind"] check
+	// requires lowercase keys as found in standard K8s manifests.
+	content := []byte(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lowercase-kind-test
+`)
+	result, err := resources.Decode(newDecoder(), content)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(result).Should(HaveLen(1))
+	g.Expect(result[0].GetKind()).Should(Equal("ConfigMap"))
+
+	// Uppercase "Kind" stays uppercase in the map and won't match out["kind"].
+	uppercaseContent := []byte(`apiVersion: v1
+Kind: ConfigMap
+metadata:
+  name: uppercase-kind-test
+`)
+	result, err = resources.Decode(newDecoder(), uppercaseContent)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(result).Should(BeEmpty(), "documents with uppercase 'Kind' YAML key should be skipped")
+}
+
 func TestDecodeEmptyInput(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)

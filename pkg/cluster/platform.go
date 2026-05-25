@@ -102,7 +102,7 @@ func detectSelfManaged(ctx context.Context, cli client.Reader) (Platform, error)
 			return OpenDataHub, nil
 		}
 
-		return "", client.IgnoreNotFound(err)
+		return OpenDataHub, client.IgnoreNotFound(err)
 	}
 
 	for _, item := range list.Items {

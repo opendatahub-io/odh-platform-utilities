@@ -12,6 +12,7 @@ controller that imports this shared library.
 | `github.com/opendatahub-io/opendatahub-operator/api/common` | `github.com/opendatahub-io/odh-platform-utilities/api/common` |
 | `github.com/opendatahub-io/opendatahub-operator/internal/controller/status` | `github.com/opendatahub-io/odh-platform-utilities/api/common` |
 | `github.com/opendatahub-io/opendatahub-operator/pkg/cluster` | `github.com/opendatahub-io/odh-platform-utilities/pkg/cluster` |
+| `github.com/opendatahub-io/opendatahub-operator/pkg/resources` | `github.com/opendatahub-io/odh-platform-utilities/pkg/resources` |
 | `github.com/opendatahub-io/opendatahub-operator/pkg/webhook` | `github.com/opendatahub-io/odh-platform-utilities/pkg/webhook` |
 
 ## Type Mapping
@@ -116,6 +117,52 @@ importable by external consumers. They are now in `api/common`.
 | `status.PhaseNotReady` | `common.PhaseNotReady` | `"Not Ready"` |
 
 Also moved from `internal/` to `api/common`.
+
+## Resource Helpers (`pkg/resources`)
+
+| Old Import (operator) | New Import (shared library) |
+|----------------------|----------------------------|
+| `github.com/opendatahub-io/opendatahub-operator/pkg/resources` | `github.com/opendatahub-io/odh-platform-utilities/pkg/resources` |
+
+Most functions (`SetLabel`, `SetAnnotation`, `HasLabel`, `HasAnnotation`,
+`HasLabelWithValue`, `HasAnnotationWithValue`, `RemoveLabel`,
+`RemoveAnnotation`, `Hash`, `Apply`, `SortByApplyOrder`, etc.) have identical
+signatures and behavior. A straight import path swap is sufficient.
+
+### `Decode` — lowercase `kind` check
+
+`Decode` filters YAML documents using the lowercase key `out["kind"]`. This is
+correct per the Kubernetes YAML convention (`kind`, not `Kind`). All standard
+Kubernetes manifests use lowercase field names, and the `yaml.v3` decoder
+preserves the original casing from the source. Documents with a non-standard
+uppercase `Kind` YAML key will be skipped.
+
+## MetaOptions (`pkg/cluster`)
+
+`MetaOptions`, `WithLabels`, `WithAnnotations`, `OwnedBy`, `ControlledBy`, and
+`WithOwnerReference` have identical signatures and behavior between repos.
+
+### `ExtractKeyValues` — now exported
+
+The operator's `extractKeyValues` (unexported) is exported as
+`ExtractKeyValues` in the shared library. It also returns a sentinel error
+`ErrOddKeyValuePairs` instead of an inline `fmt.Errorf`, enabling programmatic
+matching with `errors.Is`.
+
+**Before (operator):**
+```go
+// Not accessible — unexported
+```
+
+**After (shared library):**
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+
+kv, err := cluster.ExtractKeyValues([]string{"key1", "val1", "key2", "val2"})
+if errors.Is(err, cluster.ErrOddKeyValuePairs) {
+    // handle odd number of elements
+}
+```
 
 ## Singleton Utilities
 
