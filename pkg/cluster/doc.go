@@ -1,6 +1,6 @@
 // Package cluster provides runtime helpers for working with Kubernetes
 // clusters: singleton custom resource retrieval, metadata functional options,
-// and stateless cluster/platform detection.
+// dynamic ownership, and stateless cluster/platform detection.
 //
 // # Singleton Helpers
 //
@@ -8,6 +8,20 @@
 // singletons with enforced naming. [GetSingleton] is a generic function that
 // retrieves the single instance of a given type, returning an error if zero
 // or more than one instance exists.
+//
+// # Ownership
+//
+// Two ownership mechanisms are provided:
+//
+//   - Standard OwnerReferences: [ControlledBy] and [OwnedBy] add native
+//     Kubernetes OwnerReferences. Use these when owner and child reside in the
+//     same namespace (or the owner is cluster-scoped and the child is too).
+//   - Dynamic ownership via labels/annotations: [WithDynamicOwner] stamps
+//     ownership metadata on child resources, and [EnqueueOwner] returns a
+//     [handler.MapFunc] that resolves those annotations into reconcile
+//     requests. Use this when child resources live in different namespaces
+//     than the owner, since Kubernetes OwnerReferences require same-namespace
+//     residency.
 //
 // # Cluster Detection
 //

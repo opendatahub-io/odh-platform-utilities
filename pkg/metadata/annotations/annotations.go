@@ -61,6 +61,13 @@ const (
 	// Recommended standard: part of the deploy/GC annotation protocol.
 	InstanceName = labels.ODHPlatformPrefix + "/instance.name"
 
+	// InstanceNamespace records the controller CR's namespace. Used together
+	// with InstanceName by the dynamic ownership handler to map child
+	// resource events back to the owning CR. Empty for cluster-scoped CRs.
+	//
+	// Recommended standard: part of the deploy/GC annotation protocol.
+	InstanceNamespace = labels.ODHPlatformPrefix + "/instance.namespace"
+
 	// InstanceUID records the controller CR's UID. The GC action uses this
 	// to detect resources from a deleted-and-recreated CR.
 	//

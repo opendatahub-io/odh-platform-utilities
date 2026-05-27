@@ -4,11 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/annotations"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/resources"
 )
 
 var (
@@ -156,6 +161,63 @@ func ControlledBy(owner client.Object) MetaOptions {
 		}
 
 		obj.SetOwnerReferences(upsertOwnerRef(obj.GetOwnerReferences(), ref))
+
+		return nil
+	}
+}
+
+// WithDynamicOwner stamps labels and annotations on obj that map it back to
+// the owning CR, enabling watch-based reconciliation without OwnerReferences.
+//
+// Use this instead of [ControlledBy] or [OwnedBy] when the child resource
+// lives in a different namespace than the owner, since Kubernetes
+// OwnerReferences require same-namespace residency. For same-namespace
+// resources, prefer standard OwnerReferences via [ControlledBy].
+//
+// The following metadata is set:
+//   - Label [labels.PlatformPartOf]: normalized owner Kind (for watch filtering and GC)
+//   - Annotation [annotations.InstanceName]: owner name
+//   - Annotation [annotations.InstanceNamespace]: owner namespace (empty for cluster-scoped)
+//   - Annotation [annotations.InstanceUID]: owner UID (for staleness detection)
+//   - Annotation [annotations.InstanceGeneration]: owner generation
+//
+// The owner must have Kind, Name, and UID populated. Call
+// SetGroupVersionKind on the owner if the GVK is not already set (e.g.
+// after a client.Get call).
+//
+// Use [EnqueueOwner] as the handler.MapFunc to resolve these annotations
+// back to a reconcile.Request in a controller Watch.
+func WithDynamicOwner(owner client.Object) MetaOptions {
+	return func(obj client.Object) error {
+		if owner == nil {
+			return ErrOwnerNil
+		}
+
+		kind := owner.GetObjectKind().GroupVersionKind().Kind
+		if kind == "" {
+			return fmt.Errorf("%s/%s: %w",
+				owner.GetNamespace(), owner.GetName(), ErrOwnerMissingKind)
+		}
+
+		if owner.GetName() == "" {
+			return ErrOwnerMissingName
+		}
+
+		if owner.GetUID() == "" {
+			return ErrOwnerMissingUID
+		}
+
+		partOf, err := labels.NormalizePartOfValue(kind)
+		if err != nil {
+			return fmt.Errorf("normalizing owner kind %q: %w", kind, err)
+		}
+
+		resources.SetLabel(obj, labels.PlatformPartOf, partOf)
+		resources.SetAnnotation(obj, annotations.InstanceName, owner.GetName())
+		resources.SetAnnotation(obj, annotations.InstanceNamespace, owner.GetNamespace())
+		resources.SetAnnotation(obj, annotations.InstanceUID, string(owner.GetUID()))
+		resources.SetAnnotation(obj, annotations.InstanceGeneration,
+			strconv.FormatInt(owner.GetGeneration(), 10))
 
 		return nil
 	}

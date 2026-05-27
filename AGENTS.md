@@ -46,8 +46,9 @@ api/
                    (Validate, ValidatePlatformObject).
 
 pkg/
-  cluster/         Singleton enforcement, metadata options (GetSingleton[T],
-                   MetaOptions, OwnerRefFrom, ControlledBy, OwnedBy).
+  cluster/         Singleton enforcement, metadata options, dynamic ownership
+                   (GetSingleton[T], MetaOptions, OwnerRefFrom, ControlledBy,
+                   OwnedBy, WithDynamicOwner, EnqueueOwner).
   deploy/          Resource deployment utilities: SSA/patch deploy with
                    pluggable merge strategies, caching, ordering, metrics.
   metadata/        Well-known label and annotation constants.
@@ -93,6 +94,8 @@ examples/          Runnable usage examples.
 | `Validate` | `api/common/validation` | Runtime PlatformObject contract validation |
 | `ValidatePlatformObject` | `api/common/validation` | Test helper wrapping Validate |
 | `GetSingleton[T]` | `pkg/cluster` | Retrieve the single CR instance |
+| `WithDynamicOwner` | `pkg/cluster` | Stamp cross-namespace ownership labels/annotations |
+| `EnqueueOwner` | `pkg/cluster` | MapFunc to resolve dynamic ownership annotations |
 | `ValidateSingletonCreation` | `pkg/webhook` | Admission webhook singleton guard |
 | `Deployer` | `pkg/deploy` | Stateful deployer with cache, merge, ordering |
 | `MergeFn` | `pkg/deploy` | Pluggable merge strategy per GVK |
