@@ -60,6 +60,9 @@ pkg/
     conditions/    Knative-inspired condition management with automatic
                    aggregation, severity-based filtering, Manager pattern,
                    and low-level condition CRUD helpers.
+    predicates/    Optional event-filtering predicates for controller-runtime
+                   (GenerationChanged, LabelSelector, AnnotationChanged,
+                   Deletion).
   render/          Manifest rendering engines (Helm, Kustomize, Go template).
     cacher/        Render caching layer.
     helm/          Helm chart renderer.
@@ -111,6 +114,10 @@ examples/          Runnable usage examples.
 | `gc.RunParams` | `pkg/controller/gc` | Per-reconcile inputs for GC |
 | `gc.ListAuthorizedResources` | `pkg/controller/gc` | RBAC-filtered resource discovery |
 | `resources.Resource` | `pkg/resources` | API resource type with GVR/GVK/scope |
+| `GenerationChangedPredicate` | `pkg/controller/predicates` | Update filter on generation change |
+| `LabelSelectorPredicate` | `pkg/controller/predicates` | Event filter by label selector |
+| `AnnotationChangedPredicate` | `pkg/controller/predicates` | Update filter on single annotation key |
+| `DeletionPredicate` | `pkg/controller/predicates` | Pass only delete events |
 
 ## Build, Test, and Lint Commands
 
