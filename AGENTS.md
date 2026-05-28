@@ -49,6 +49,8 @@ pkg/
   cluster/         Singleton enforcement, metadata options, dynamic ownership
                    (GetSingleton[T], MetaOptions, OwnerRefFrom, ControlledBy,
                    OwnedBy, WithDynamicOwner, EnqueueOwner).
+  status/          Safe status subresource updates with automatic conflict
+                   retry (Update[T]).
   deploy/          Resource deployment utilities: SSA/patch deploy with
                    pluggable merge strategies, caching, ordering, metrics.
   metadata/        Well-known label and annotation constants.
@@ -114,6 +116,9 @@ examples/          Runnable usage examples.
 | `gc.RunParams` | `pkg/controller/gc` | Per-reconcile inputs for GC |
 | `gc.ListAuthorizedResources` | `pkg/controller/gc` | RBAC-filtered resource discovery |
 | `resources.Resource` | `pkg/resources` | API resource type with GVR/GVK/scope |
+| `status.Update` | `pkg/status` | Safe status write with conflict retry |
+| `status.ErrRetriesExhausted` | `pkg/status` | Sentinel error for exhausted retries |
+| `status.WithMaxRetries` | `pkg/status` | Option to configure retry count |
 | `GenerationChangedPredicate` | `pkg/controller/predicates` | Update filter on generation change |
 | `LabelSelectorPredicate` | `pkg/controller/predicates` | Event filter by label selector |
 | `AnnotationChangedPredicate` | `pkg/controller/predicates` | Update filter on single annotation key |
