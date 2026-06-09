@@ -98,6 +98,84 @@ func TestCustomResourceDefinitionExists(t *testing.T) {
 	}
 }
 
+func TestHasCRD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		crdGK   schema.GroupKind
+		objects []*unstructured.Unstructured
+		wantHas bool
+	}{
+		{
+			name:  "CRD exists and is established",
+			crdGK: schema.GroupKind{Group: "serving.kserve.io", Kind: "InferenceService"},
+			objects: []*unstructured.Unstructured{
+				newCRD("inferenceservices.serving.kserve.io", true),
+			},
+			wantHas: true,
+		},
+		{
+			name:    "CRD does not exist",
+			crdGK:   schema.GroupKind{Group: "serving.kserve.io", Kind: "InferenceService"},
+			objects: nil,
+			wantHas: false,
+		},
+		{
+			name:  "CRD exists but not established",
+			crdGK: schema.GroupKind{Group: "serving.kserve.io", Kind: "InferenceService"},
+			objects: []*unstructured.Unstructured{
+				newCRD("inferenceservices.serving.kserve.io", false),
+			},
+			wantHas: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := fake.NewClientBuilder().WithScheme(runtime.NewScheme())
+			for _, obj := range tc.objects {
+				builder = builder.WithObjects(obj)
+			}
+
+			cli := builder.Build()
+
+			has, err := cluster.HasCRD(t.Context(), cli, tc.crdGK)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if has != tc.wantHas {
+				t.Errorf("HasCRD = %v, want %v", has, tc.wantHas)
+			}
+		})
+	}
+}
+
+func TestHasCRD_APIError(t *testing.T) {
+	t.Parallel()
+
+	baseCli := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+	cli := &erroringCRDClient{
+		Reader:     baseCli,
+		targetName: "inferenceservices.serving.kserve.io",
+		err:        apierrors.NewInternalError(errSyntheticAPI),
+	}
+
+	gk := schema.GroupKind{Group: "serving.kserve.io", Kind: "InferenceService"}
+
+	has, err := cluster.HasCRD(t.Context(), cli, gk)
+	if err == nil {
+		t.Fatal("expected error from API failure, got nil")
+	}
+
+	if has {
+		t.Error("HasCRD should be false on API error")
+	}
+}
+
 func TestCustomResourceDefinitionExists_APIError(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +194,7 @@ func TestCustomResourceDefinitionExists_APIError(t *testing.T) {
 	}
 }
 
+//nolint:unparam // name kept as parameter for readability in test table cases.
 func newCRD(name string, established bool) *unstructured.Unstructured {
 	status := "False"
 	if established {
