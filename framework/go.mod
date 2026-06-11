@@ -13,6 +13,7 @@ require (
 	github.com/lburgazzoli/gomega-matchers v0.4.1-0.20260219145423-4061a5fb8799
 	github.com/onsi/gomega v1.39.1
 	github.com/opendatahub-io/odh-platform-utilities v0.0.0-00010101000000-000000000000
+	github.com/openshift/api v0.0.0-20260610192510-1b2a074e0bd6
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/xid v1.6.0
 	gopkg.in/yaml.v3 v3.0.1
