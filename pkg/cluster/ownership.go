@@ -12,8 +12,13 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/resources"
 )
 
-// EnqueueOwner returns a handler.MapFunc that resolves the owner CR from the
-// dynamic ownership annotations stamped by [WithDynamicOwner]. The returned
+// EnqueueOwner is deprecated: Use [EnqueueByOwnerAnnotation].
+func EnqueueOwner() handler.MapFunc {
+	return EnqueueByOwnerAnnotation()
+}
+
+// EnqueueByOwnerAnnotation returns a handler.MapFunc that resolves the owner CR
+// from the ownership annotations stamped by [WithOwnerAnnotations]. The returned
 // function reads [annotations.InstanceName] and [annotations.InstanceNamespace]
 // to construct a reconcile.Request, allowing a controller Watch to trigger
 // reconciliation of the owner when a child resource changes.
@@ -32,9 +37,9 @@ import (
 //	ctrl.NewControllerManagedBy(mgr).
 //	    For(&myv1.MyModule{}).
 //	    Watches(&corev1.ConfigMap{},
-//	        handler.EnqueueRequestsFromMapFunc(cluster.EnqueueOwner())).
+//	        handler.EnqueueRequestsFromMapFunc(cluster.EnqueueByOwnerAnnotation())).
 //	    Complete(r)
-func EnqueueOwner() handler.MapFunc {
+func EnqueueByOwnerAnnotation() handler.MapFunc {
 	return func(_ context.Context, obj client.Object) []reconcile.Request {
 		name := resources.GetAnnotation(obj, annotations.InstanceName)
 		if name == "" {

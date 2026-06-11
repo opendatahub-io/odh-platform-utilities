@@ -166,7 +166,7 @@ func ControlledBy(owner client.Object) MetaOptions {
 	}
 }
 
-// WithDynamicOwner stamps labels and annotations on obj that map it back to
+// WithOwnerAnnotations stamps labels and annotations on obj that map it back to
 // the owning CR, enabling watch-based reconciliation without OwnerReferences.
 //
 // Use this instead of [ControlledBy] or [OwnedBy] when the child resource
@@ -185,9 +185,9 @@ func ControlledBy(owner client.Object) MetaOptions {
 // SetGroupVersionKind on the owner if the GVK is not already set (e.g.
 // after a client.Get call).
 //
-// Use [EnqueueOwner] as the handler.MapFunc to resolve these annotations
+// Use [EnqueueByOwnerAnnotation] as the handler.MapFunc to resolve these annotations
 // back to a reconcile.Request in a controller Watch.
-func WithDynamicOwner(owner client.Object) MetaOptions {
+func WithOwnerAnnotations(owner client.Object) MetaOptions {
 	return func(obj client.Object) error {
 		if owner == nil {
 			return ErrOwnerNil
@@ -221,6 +221,11 @@ func WithDynamicOwner(owner client.Object) MetaOptions {
 
 		return nil
 	}
+}
+
+// WithDynamicOwner is deprecated: Use [WithOwnerAnnotations].
+func WithDynamicOwner(owner client.Object) MetaOptions {
+	return WithOwnerAnnotations(owner)
 }
 
 // InNamespace returns a MetaOptions that sets the object's namespace.
