@@ -193,14 +193,14 @@ func (s *Status) SetConditions(conditions []Condition) {
 type ComponentRelease struct {
 	// Name is the component name, used as the merge key in lists.
 	// +kubebuilder:validation:Required
-	Name string `json:"name"`
+	Name string `json:"name" yaml:"name"`
 
 	// Version is the semantic version of the component.
-	Version string `json:"version,omitempty"`
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
 
 	// RepoURL is the source repository URL for this component release.
 	// +optional
-	RepoURL string `json:"repoUrl,omitempty"`
+	RepoURL string `json:"repoUrl,omitempty" yaml:"repoUrl,omitempty"`
 }
 
 // ReleasePlatform is the well-known release entry name used for the platform
@@ -221,7 +221,7 @@ type ComponentReleaseStatus struct {
 	// +optional
 	// +patchMergeKey=name
 	// +patchStrategy=merge
-	Releases []ComponentRelease `json:"releases,omitempty"`
+	Releases []ComponentRelease `json:"releases,omitempty" yaml:"releases,omitempty"`
 }
 
 // GetRelease returns the release entry with the given name, or nil if not
