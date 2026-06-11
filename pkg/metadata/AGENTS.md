@@ -97,15 +97,15 @@ this to the current generation to detect resources from a previous spec update.
 
 Records the controller CR's name. The reconciler builder's default `Watches()`
 handler maps events on deployed resources back to the owning CR using this
-annotation. Also used by `cluster.EnqueueOwner()` for dynamic ownership
-resolution.
+annotation. Also used by `cluster.EnqueueByOwnerAnnotation()` for
+annotation-based owner resolution.
 
 ### `InstanceNamespace` (`platform.opendatahub.io/instance.namespace`)
 
 Records the controller CR's namespace. Used together with `InstanceName` by
-the dynamic ownership handler (`cluster.EnqueueOwner()`) to map child resource
-events back to the owning CR. Empty for cluster-scoped CRs. Set automatically
-by `cluster.WithDynamicOwner()`.
+the annotation-based ownership handler (`cluster.EnqueueByOwnerAnnotation()`)
+to map child resource events back to the owning CR. Empty for cluster-scoped
+CRs. Set automatically by `cluster.WithOwnerAnnotations()`.
 
 ### `InstanceUID` (`platform.opendatahub.io/instance.uid`)
 
