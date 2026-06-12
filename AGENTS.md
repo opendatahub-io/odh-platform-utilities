@@ -34,7 +34,19 @@ For architectural context see:
 - [Onboarding Guide for ODH Operator Modules](https://docs.google.com/document/d/1FeJk5mMPGMGMNqMAiGn0-cTKcNxblDYAkhU4DOmcpns)
 - [ODH Operator Evolution](https://docs.google.com/document/d/1mOuXIKkqbh3rS35g4JdWTj5HvjQ_a-7u7HBwBIqlIpI)
 
-## Package Structure
+## Repository Structure
+
+This repository contains **two Go modules**:
+
+| Module | Path | Purpose |
+|--------|------|---------|
+| `github.com/opendatahub-io/odh-platform-utilities` | `/` (root) | Low-level, dependency-light utilities |
+| `github.com/opendatahub-io/odh-platform-utilities/framework` | `framework/` | Opinionated controller framework |
+
+The `framework/` module depends on the root module (via `replace` directive for
+local development).
+
+### Root Module
 
 ```text
 api/
@@ -62,9 +74,12 @@ pkg/
     conditions/    Knative-inspired condition management with automatic
                    aggregation, severity-based filtering, Manager pattern,
                    and low-level condition CRUD helpers.
+    gc/            Garbage collection (Collector, RBAC authorization,
+                   predicates, metrics).                   
     predicates/    Optional event-filtering predicates for controller-runtime
                    (GenerationChanged, LabelSelector, AnnotationChanged,
                    Deletion).
+    actions/       Action function type (Fn) and ReconciliationRequest definition.        
   render/          Manifest rendering engines (Helm, Kustomize, Go template).
     cacher/        Render caching layer.
     helm/          Helm chart renderer.
@@ -75,15 +90,135 @@ pkg/
                    GetAnnotation, IsOwnedByType,
                    GetGroupVersionKindForObject, ListAvailableAPIResources,
                    Resource type).
-  controller/
-    conditions/    Condition management (Manager, SetStatusCondition, etc.).
-    gc/            Garbage collection (Collector, RBAC authorization,
-                   predicates, metrics).
   template/        Template function map (indent, nindent, toYaml).
 
 docs/              Documentation beyond GoDoc.
 examples/          Runnable usage examples.
 ```
+
+### Framework Module (`framework/`)
+
+The framework module provides an opinionated, batteries-included controller
+framework built on controller-runtime. It is designed for teams building ODH
+module controllers and provides a complete reconcile/deploy/GC lifecycle out of
+the box.
+
+```text
+framework/
+  api/                          Re-exports root-module platform types;
+                                adds Release, Platform types.
+  cluster/                      CRD existence checks, API availability,
+                                singleton listing (HasCRD, IsAPIAvailable,
+                                ListGVK).
+    gvk/                        Well-known GroupVersionKind constants
+                                (Deployment, ClusterRole, monitoring CRDs).
+  controller/
+    reconciler/                 Generic Reconciler with:
+                                - Finalizer management (add/remove)
+                                - Action pipeline execution
+                                - Condition aggregation & phase computation
+                                - Status SSA write
+                                - Pre-apply hooks
+                                - Dynamic ownership support
+                                Options: WithRelease, WithFinalizerName,
+                                WithConditionsManagerFactory, WithPhaseNames,
+                                WithPreApplyFn, WithDynamicOwnership, etc.
+    actions/                    Action function type (Fn) and Getter[T].
+      deploy/                   Resource deployment via SSA or patch:
+                                - Deploy cache (fingerprint-based skip)
+                                - Per-GVK customizers (Deployments, ClusterRoles,
+                                  observability CRs)
+                                - Merge strategies (preserve user replicas/resources)
+                                - Configurable labels, annotations, field owner
+                                - Apply-order sorting
+                                Options: WithMode, WithCache, WithApplyOrder,
+                                WithApplyCustomizer, WithPatchCustomizer, etc.
+      gc/                       Label-selector garbage collection:
+                                - RBAC-aware resource discovery
+                                - Type and object predicates
+                                - Configurable propagation policy
+                                - Unremovable GVK safelist (CRDs, Leases)
+                                - Prometheus metrics
+                                Options: WithPartOfLabel, WithUnremovables,
+                                WithObjectPredicate, WithTypePredicate, etc.
+      render/
+        helm/                   Helm chart render action.
+        kustomize/              Kustomize render action.
+        template/               Go template render action.
+      deleteresource/           Explicit resource deletion action.
+      dynamicownership/         Dynamic watch registration for deployed
+                                resources with ownership tracking and
+                                CRD watches.
+      sanitycheck/              Pre-reconciliation cluster state validation
+                                (ensure unwanted CRDs are absent).
+      status/
+        deployments/            Deployment availability status checks.
+      resourcecacher/           Reconciliation-level resource caching.
+      cacher/                   Action-level caching (skip re-execution
+                                when inputs unchanged).
+      errors/                   StopError sentinel for halting the action
+                                pipeline without returning a real error.
+    conditions/                 Knative-inspired condition Manager:
+                                - Automatic happiness aggregation from
+                                  dependent conditions
+                                - Severity-based filtering (Error only)
+                                - Stale condition cleanup
+                                - Sort by priority
+                                Helpers: SetStatusCondition,
+                                FindStatusCondition, RemoveStatusCondition,
+                                IsStatusConditionTrue.
+    handlers/                   Watch event handlers: LabelToName,
+                                AnnotationToName, ToNamed, RequestFromObject.
+    predicates/                 Default predicates (DefaultPredicate,
+                                DefaultDeploymentPredicate) plus sub-packages:
+      dependent/                Dependent resource predicate.
+      generation/               Generation-changed predicate.
+      hash/                     Hash-changed predicate.
+      label/                    Label-selector predicate.
+      partial/                  Partial-object predicate.
+      resources/                Resource-specific predicates (Deployment
+                                status, created/deleted/named).
+    types/                      ReconciliationRequest, ManifestInfo,
+                                HelmChartInfo, TemplateInfo, Controller
+                                interface, Hash/HashStr utilities.
+  metadata/                     Annotation suffix constants used by
+                                deploy/GC actions.
+  resources/                    Resource helpers: GVK resolution,
+                                apply-order sorting, owner references,
+                                status apply, EnsureGroupVersionKind.
+  rules/                        RBAC rule evaluation:
+                                SelfSubjectRulesReview, permission checks,
+                                authorized resource listing.
+  utils/
+    template/                   Template utilities.
+    test/
+      matchers/                 Gomega matchers and jq-based assertions
+                                for integration tests.
+```
+
+#### Key Framework Concepts
+
+**Action Pipeline**: The reconciler executes an ordered list of `actions.Fn`
+functions. Each action receives a `ReconciliationRequest` and can render
+manifests, deploy resources, run GC, update conditions, or perform arbitrary
+logic. Actions communicate via the shared `ReconciliationRequest.Resources`
+slice and `Extensions` map.
+
+**Typical Action Chain**: render (Helm/Kustomize/template) -> deploy ->
+dynamic ownership -> GC. The GC action MUST be last.
+
+**Condition Manager**: Inspired by Knative, the `conditions.Manager` tracks a
+"happy" condition and zero or more dependent conditions. It automatically
+recomputes the happy condition based on the worst-severity dependent. Stale
+conditions from previous reconciles are cleaned up automatically.
+
+**Deploy Modes**: SSA (server-side apply, default) or Patch. Both support
+per-GVK customizers for special handling (e.g. preserving user-set replicas on
+Deployments, removing rules from aggregated ClusterRoles).
+
+**Dynamic Ownership**: When enabled, the reconciler dynamically registers
+watches for any GVK it deploys, tracks ownership via owner references, and
+supports unmanaged resources (annotation-based opt-out).
 
 ## Key Types and Where to Find Them
 

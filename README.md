@@ -15,15 +15,34 @@ go get github.com/opendatahub-io/odh-platform-utilities
 ## Usage
 
 ```go
+// Root module -- low-level utilities
 import "github.com/opendatahub-io/odh-platform-utilities/pkg/<package>"
+
+// Framework module -- controller reconciler, actions, conditions
+import "github.com/opendatahub-io/odh-platform-utilities/framework/<package>"
 ```
 
-Packages are organized under `pkg/` with each utility in its own sub-package.
+Root-module packages are organized under `pkg/` with each utility in its own
+sub-package. Framework packages live under `framework/` as a separate Go module.
 See the [examples](./examples/) directory for runnable usage examples and the
 [GoDoc](https://pkg.go.dev/github.com/opendatahub-io/odh-platform-utilities)
 for full API documentation.
 
-## Packages
+## Repository Structure
+
+This repository contains two Go modules:
+
+| Module | Path | Description |
+|--------|------|-------------|
+| `github.com/opendatahub-io/odh-platform-utilities` | `/` (root) | Low-level, dependency-light utilities for platform contract types, metadata, cluster detection, manifest rendering, and resource helpers |
+| `github.com/opendatahub-io/odh-platform-utilities/framework` | `framework/` | Opinionated controller framework providing a full reconciler, action pipeline, deploy/GC lifecycle, condition management, and test helpers |
+
+The root module is suitable for any Go project that needs platform types or
+standalone helpers. The `framework/` module is for teams building full
+controller-runtime-based operators that want the complete reconcile/deploy/GC
+pipeline out of the box.
+
+## Root Module Packages
 
 | Package | Description |
 |---------|-------------|
@@ -41,6 +60,50 @@ for full API documentation.
 | `pkg/render` | Shared types (`ReconciliationRequest`, `Fn`), Prometheus metrics |
 | `pkg/resources` | Kubernetes resource helpers (`Decode`, `SetLabels`, `SetAnnotations`, `UnstructuredList`) |
 | `pkg/template` | Template function map (`indent`, `nindent`, `toYaml`) |
+
+## Framework Module
+
+The `framework/` directory is a separate Go module
+(`github.com/opendatahub-io/odh-platform-utilities/framework`) that provides an
+opinionated controller framework built on top of the root module and
+controller-runtime.
+
+### Installation
+
+```bash
+go get github.com/opendatahub-io/odh-platform-utilities/framework
+```
+
+### Packages
+
+| Package | Description |
+|---------|-------------|
+| `api` | Re-exports root-module platform types plus framework-specific `Release` and `Platform` types |
+| `cluster` | CRD existence checks, API availability, singleton listing |
+| `cluster/gvk` | Well-known `GroupVersionKind` constants (Deployment, ClusterRole, monitoring CRDs, etc.) |
+| `controller/reconciler` | Generic `Reconciler` with finalizer management, condition aggregation, phase computation, and status SSA |
+| `controller/actions` | Action function type (`Fn`) used to build reconciliation pipelines |
+| `controller/actions/deploy` | Resource deployment via SSA or patch with caching, merge strategies (Deployments, ClusterRoles, observability CRs), and per-GVK customizers |
+| `controller/actions/gc` | Label-selector-based garbage collection with RBAC-aware resource discovery and configurable predicates |
+| `controller/actions/render/helm` | Helm chart render action for the reconciliation pipeline |
+| `controller/actions/render/kustomize` | Kustomize render action for the reconciliation pipeline |
+| `controller/actions/render/template` | Go template render action for the reconciliation pipeline |
+| `controller/actions/deleteresource` | Explicit resource deletion action |
+| `controller/actions/dynamicownership` | Dynamic watch registration for deployed resources with ownership tracking |
+| `controller/actions/sanitycheck` | Pre-reconciliation cluster state validation (e.g. ensure unwanted CRDs are absent) |
+| `controller/actions/status/deployments` | Deployment availability status checks |
+| `controller/actions/resourcecacher` | Reconciliation-level resource caching |
+| `controller/actions/cacher` | Action-level caching (skip re-execution when inputs unchanged) |
+| `controller/actions/errors` | Stop-error sentinel for halting the action pipeline |
+| `controller/conditions` | Knative-inspired condition manager with automatic aggregation, severity filtering, and stale cleanup |
+| `controller/handlers` | Watch event handlers: label-to-name, annotation-to-name, fixed-name routing |
+| `controller/predicates` | Default event-filtering predicates (generation change, label/annotation change, deployment status) |
+| `controller/types` | `ReconciliationRequest`, `ManifestInfo`, `HelmChartInfo`, `TemplateInfo`, and hash utilities |
+| `metadata` | Annotation suffix constants used by deploy/GC actions |
+| `resources` | Resource helpers: GVK resolution, apply-order sorting, owner references, status apply |
+| `rules` | RBAC rule evaluation: `SelfSubjectRulesReview`, permission checks, authorized resource listing |
+| `utils/template` | Template utilities |
+| `utils/test/matchers` | Gomega matchers and jq-based assertions for integration tests |
 
 ## Platform Contract
 
