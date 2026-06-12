@@ -2,19 +2,53 @@ package kustomize_test
 
 import (
 	"context"
+	"path"
 	"testing"
+
+	"github.com/rs/xid"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 
 	common "github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/kustomize"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	k8stypes "k8s.io/apimachinery/pkg/types"
+	mk "github.com/opendatahub-io/odh-platform-utilities/framework/render/kustomize"
 
 	. "github.com/onsi/gomega"
 )
+
+const testKustomization = `
+apiVersion: kustomize.config.k8s.io/v1beta1
+resources:
+- configmap.yaml
+- deployment.yaml
+`
+
+const testConfigMap = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-cm
+data:
+  foo: bar
+`
+
+const testDeployment = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-deployment
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+`
 
 type fakeInstance struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -53,28 +87,77 @@ func minimalInstance() api.PlatformObject {
 	}
 }
 
-type renderCall struct {
-	path string
-	opts []kustomize.RenderOpt
+func setupFS(t *testing.T) (filesys.FileSystem, string) {
+	t.Helper()
+
+	fs := filesys.MakeFsInMemory()
+	id := xid.New().String()
+
+	_ = fs.MkdirAll(path.Join(id, mk.DefaultKustomizationFilePath))
+	_ = fs.WriteFile(path.Join(id, mk.DefaultKustomizationFileName), []byte(testKustomization))
+	_ = fs.WriteFile(path.Join(id, "configmap.yaml"), []byte(testConfigMap))
+	_ = fs.WriteFile(path.Join(id, "deployment.yaml"), []byte(testDeployment))
+
+	return fs, id
 }
 
-type mockEngine struct {
-	calls []renderCall
+func TestRenderWithNamespace(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+	ctx := context.Background()
+	fs, id := setupFS(t)
+	ns := "test-ns"
+
+	action := kustomize.NewAction(
+		kustomize.WithCache(false),
+		kustomize.WithNamespaceFn(func(_ context.Context, _ *types.ReconciliationRequest) (string, error) {
+			return ns, nil
+		}),
+		kustomize.WithManifestsOptions(mk.WithEngineFS(fs)),
+	)
+
+	rr := &types.ReconciliationRequest{
+		Instance:  minimalInstance(),
+		Manifests: []types.ManifestInfo{{Path: id}},
+	}
+
+	err := action(ctx, rr)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Resources).Should(HaveLen(2))
+
+	for _, r := range rr.Resources {
+		g.Expect(r.GetNamespace()).Should(Equal(ns))
+	}
 }
 
-func (m *mockEngine) Render(path string, opts ...kustomize.RenderOpt) ([]unstructured.Unstructured, error) {
-	m.calls = append(m.calls, renderCall{path: path, opts: opts})
+func TestRenderWithLabelsAndAnnotations(t *testing.T) {
+	t.Parallel()
 
-	obj := unstructured.Unstructured{}
-	obj.SetKind("ConfigMap")
-	obj.SetAPIVersion("v1")
-	obj.SetName("rendered-from-" + path)
+	g := NewWithT(t)
+	ctx := context.Background()
+	fs, id := setupFS(t)
 
-	return []unstructured.Unstructured{obj}, nil
-}
+	action := kustomize.NewAction(
+		kustomize.WithCache(false),
+		kustomize.WithLabel("app", "test"),
+		kustomize.WithAnnotation("version", "1.0"),
+		kustomize.WithManifestsOptions(mk.WithEngineFS(fs)),
+	)
 
-func optsLen(opts []kustomize.RenderOpt) int {
-	return len(opts)
+	rr := &types.ReconciliationRequest{
+		Instance:  minimalInstance(),
+		Manifests: []types.ManifestInfo{{Path: id}},
+	}
+
+	err := action(ctx, rr)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Resources).Should(HaveLen(2))
+
+	for _, r := range rr.Resources {
+		g.Expect(r.GetLabels()).Should(HaveKeyWithValue("app", "test"))
+		g.Expect(r.GetAnnotations()).Should(HaveKeyWithValue("version", "1.0"))
+	}
 }
 
 func TestRenderPerManifestNamespaceOverride(t *testing.T) {
@@ -83,105 +166,121 @@ func TestRenderPerManifestNamespaceOverride(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
-	engine := &mockEngine{}
+	fs := filesys.MakeFsInMemory()
+	idA := xid.New().String()
+	idB := xid.New().String()
+
+	_ = fs.MkdirAll(path.Join(idA, mk.DefaultKustomizationFilePath))
+	_ = fs.WriteFile(path.Join(idA, "cm.yaml"), []byte(testConfigMap))
+	_ = fs.WriteFile(path.Join(idA, mk.DefaultKustomizationFileName), []byte(
+		"apiVersion: kustomize.config.k8s.io/v1beta1\nresources:\n- cm.yaml\n",
+	))
+
+	_ = fs.MkdirAll(path.Join(idB, mk.DefaultKustomizationFilePath))
+	_ = fs.WriteFile(path.Join(idB, "cm.yaml"), []byte(testConfigMap))
+	_ = fs.WriteFile(path.Join(idB, mk.DefaultKustomizationFileName), []byte(
+		"apiVersion: kustomize.config.k8s.io/v1beta1\nresources:\n- cm.yaml\n",
+	))
+
 	defaultNS := "default-ns"
-	overrideNS := "module-ns"
+	overrideNS := "override-ns"
 
 	action := kustomize.NewAction(
-		kustomize.WithEngine(engine),
 		kustomize.WithCache(false),
 		kustomize.WithNamespaceFn(func(_ context.Context, _ *types.ReconciliationRequest) (string, error) {
 			return defaultNS, nil
 		}),
+		kustomize.WithManifestsOptions(mk.WithEngineFS(fs)),
 	)
 
 	rr := &types.ReconciliationRequest{
 		Instance: minimalInstance(),
 		Manifests: []types.ManifestInfo{
-			{Path: "manifest-a"},
-			{Path: "manifest-b", Namespace: overrideNS},
-			{Path: "manifest-c"},
+			{Path: idA},
+			{Path: idB, Namespace: overrideNS},
 		},
 	}
 
 	err := action(ctx, rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
-	g.Expect(rr.Resources).Should(HaveLen(3))
+	g.Expect(rr.Resources).Should(HaveLen(2))
 
-	g.Expect(engine.calls).Should(HaveLen(3))
-
-	g.Expect(optsLen(engine.calls[0].opts)).Should(Equal(1),
-		"manifest-a should receive only the default namespace opt")
-
-	g.Expect(optsLen(engine.calls[1].opts)).Should(Equal(2),
-		"manifest-b should receive both default and override namespace opts (override wins)")
-
-	g.Expect(optsLen(engine.calls[2].opts)).Should(Equal(1),
-		"manifest-c should receive only the default namespace opt")
+	g.Expect(rr.Resources[0].GetNamespace()).Should(Equal(defaultNS))
+	g.Expect(rr.Resources[1].GetNamespace()).Should(Equal(overrideNS))
 }
 
-func TestRenderAllManifestsUseDefaultNamespace(t *testing.T) {
+func TestRenderNoNamespaceFn(t *testing.T) {
 	t.Parallel()
 
 	g := NewWithT(t)
 	ctx := context.Background()
-
-	engine := &mockEngine{}
-	defaultNS := "default-ns"
+	fs, id := setupFS(t)
 
 	action := kustomize.NewAction(
-		kustomize.WithEngine(engine),
 		kustomize.WithCache(false),
+		kustomize.WithManifestsOptions(mk.WithEngineFS(fs)),
+	)
+
+	rr := &types.ReconciliationRequest{
+		Instance:  minimalInstance(),
+		Manifests: []types.ManifestInfo{{Path: id}},
+	}
+
+	err := action(ctx, rr)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Resources).Should(HaveLen(2))
+}
+
+func TestRenderWithCache(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+	ctx := context.Background()
+	fs, id := setupFS(t)
+	ns := "test-ns"
+
+	action := kustomize.NewAction(
+		kustomize.WithLabel("app", "cached"),
 		kustomize.WithNamespaceFn(func(_ context.Context, _ *types.ReconciliationRequest) (string, error) {
-			return defaultNS, nil
+			return ns, nil
 		}),
+		kustomize.WithManifestsOptions(mk.WithEngineFS(fs)),
 	)
 
-	rr := &types.ReconciliationRequest{
-		Instance: minimalInstance(),
-		Manifests: []types.ManifestInfo{
-			{Path: "manifest-a"},
-			{Path: "manifest-b"},
-		},
+	for i := range 3 {
+		inst := &fakeInstance{
+			TypeMeta: metav1.TypeMeta{APIVersion: "test/v1", Kind: "Fake"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-instance",
+				UID:  k8stypes.UID("uid-1234"),
+			},
+		}
+
+		if i >= 1 {
+			inst.Generation = 1
+		}
+
+		rr := &types.ReconciliationRequest{
+			Instance:  inst,
+			Manifests: []types.ManifestInfo{{Path: id}},
+		}
+
+		err := action(ctx, rr)
+		g.Expect(err).ShouldNot(HaveOccurred())
+		g.Expect(rr.Resources).Should(HaveLen(2))
+
+		for _, r := range rr.Resources {
+			g.Expect(r.GetNamespace()).Should(Equal(ns))
+			g.Expect(r.GetLabels()).Should(HaveKeyWithValue("app", "cached"))
+		}
+
+		switch i {
+		case 0:
+			g.Expect(rr.Generated).Should(BeTrue())
+		case 1:
+			g.Expect(rr.Generated).Should(BeTrue())
+		case 2:
+			g.Expect(rr.Generated).Should(BeFalse())
+		}
 	}
-
-	err := action(ctx, rr)
-	g.Expect(err).ShouldNot(HaveOccurred())
-
-	g.Expect(engine.calls).Should(HaveLen(2))
-	g.Expect(optsLen(engine.calls[0].opts)).Should(Equal(1))
-	g.Expect(optsLen(engine.calls[1].opts)).Should(Equal(1))
-}
-
-func TestRenderNoNamespaceFnWithOverride(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-	ctx := context.Background()
-
-	engine := &mockEngine{}
-	overrideNS := "module-ns"
-
-	action := kustomize.NewAction(
-		kustomize.WithEngine(engine),
-		kustomize.WithCache(false),
-	)
-
-	rr := &types.ReconciliationRequest{
-		Instance: minimalInstance(),
-		Manifests: []types.ManifestInfo{
-			{Path: "manifest-a"},
-			{Path: "manifest-b", Namespace: overrideNS},
-		},
-	}
-
-	err := action(ctx, rr)
-	g.Expect(err).ShouldNot(HaveOccurred())
-
-	g.Expect(engine.calls).Should(HaveLen(2))
-	g.Expect(optsLen(engine.calls[0].opts)).Should(Equal(0),
-		"manifest-a should have no namespace opts when namespaceFn is nil and no override")
-
-	g.Expect(optsLen(engine.calls[1].opts)).Should(Equal(1),
-		"manifest-b should have the override namespace opt even without namespaceFn")
 }
