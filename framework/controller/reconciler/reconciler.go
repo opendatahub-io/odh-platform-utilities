@@ -334,6 +334,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 		requeueAfter, err := r.apply(ctx, res)
 		if err != nil {
+			var se odherrors.StopError
+			if errors.As(err, &se) && se.RequeueAfter() > 0 {
+				l.Info("reconciliation paused, requeue scheduled",
+					"requeueAfter", se.RequeueAfter(), "reason", se.Error())
+				return ctrl.Result{RequeueAfter: se.RequeueAfter()}, nil
+			}
 			return ctrl.Result{}, err
 		}
 
@@ -394,6 +400,10 @@ func (r *Reconciler) delete(ctx context.Context, res api.PlatformObject) error {
 		Manifests: make([]types.ManifestInfo, 0),
 	}
 
+	// NOTE: StopError.RequeueAfter is intentionally ignored during deletion.
+	// A StopError in a finalizer breaks the loop and returns nil, so the
+	// controller will not requeue. Delayed requeue only applies to the
+	// provisioning (apply) path.
 	for _, action := range r.Finalizer {
 		l.V(3).Info("Executing finalizer", "action", action)
 
@@ -535,6 +545,20 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	}
 
 	if provisionErr != nil {
+		var se odherrors.StopError
+		if errors.As(provisionErr, &se) && se.RequeueAfter() > 0 {
+			r.Recorder.Eventf(
+				res,
+				nil,
+				corev1.EventTypeNormal,
+				"ProvisioningPaused",
+				"Provision",
+				fmt.Sprintf("requeue after %s: %s", se.RequeueAfter(), provisionErr.Error()),
+			)
+
+			return 0, fmt.Errorf("provisioning paused: %w", provisionErr)
+		}
+
 		r.Recorder.Eventf(
 			res,
 			nil,
