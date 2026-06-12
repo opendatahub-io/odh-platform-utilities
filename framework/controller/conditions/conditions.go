@@ -13,6 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const ConditionReasonNotSet = "ConditionNotSet"
+
 type Option func(*api.Condition)
 
 func WithReason(value string) Option {
@@ -255,14 +257,33 @@ func (r *Manager) CleanupStaleConditions() {
 		return
 	}
 
-	var toRemove []string
+	dependentSet := make(map[string]struct{}, len(r.dependents))
+	for _, d := range r.dependents {
+		dependentSet[d] = struct{}{}
+	}
 
-	for _, c := range r.accessor.GetConditions() {
+	var toRemove []string
+	changed := false
+
+	for _, c := range slices.Clone(r.accessor.GetConditions()) {
 		if c.Type == r.happy {
 			continue
 		}
 
-		if _, active := r.activeTypes[c.Type]; !active {
+		if _, active := r.activeTypes[c.Type]; active {
+			continue
+		}
+
+		if _, isDependent := dependentSet[c.Type]; isDependent {
+			SetStatusCondition(r.accessor, api.Condition{
+				Type:     c.Type,
+				Status:   metav1.ConditionFalse,
+				Severity: api.ConditionSeverityError,
+				Reason:   ConditionReasonNotSet,
+				Message:  fmt.Sprintf("condition %s was not set during reconciliation", c.Type),
+			})
+			changed = true
+		} else {
 			toRemove = append(toRemove, c.Type)
 		}
 	}
@@ -271,7 +292,7 @@ func (r *Manager) CleanupStaleConditions() {
 		RemoveStatusCondition(r.accessor, t)
 	}
 
-	if len(toRemove) > 0 {
+	if len(toRemove) > 0 || changed {
 		r.RecomputeHappiness("")
 	}
 }
