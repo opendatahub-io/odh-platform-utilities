@@ -104,7 +104,6 @@ on your module CR. If your module has no sub-components, return an empty
 |------------------------------|------------------------|-------|
 | `status.ConditionTypeReady` | `common.ConditionTypeReady` | `"Ready"` |
 | `status.ConditionTypeProvisioningSucceeded` | `common.ConditionTypeProvisioningSucceeded` | `"ProvisioningSucceeded"` |
-| `status.ConditionTypeDegraded` | `common.ConditionTypeDegraded` | `"Degraded"` |
 
 These were previously in `internal/controller/status/status.go` and not
 importable by external consumers. They are now in `api/common`.

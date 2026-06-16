@@ -21,7 +21,7 @@ var (
 	)
 	ErrMandatoryConds = errors.New(
 		"mandatory condition type missing:" +
-			" Ready, ProvisioningSucceeded, and Degraded must all be storable",
+			" Ready and ProvisioningSucceeded must both be storable",
 	)
 	ErrNilReleaseStatus = errors.New(
 		"release status pointer must not be nil:" +
@@ -140,7 +140,6 @@ func checkMandatoryConditionTypes(obj common.PlatformObject) error {
 	mandatoryTypes := []common.ConditionType{
 		common.ConditionTypeReady,
 		common.ConditionTypeProvisioningSucceeded,
-		common.ConditionTypeDegraded,
 	}
 
 	conditions := make([]common.Condition, 0, len(mandatoryTypes))

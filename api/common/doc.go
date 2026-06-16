@@ -29,10 +29,10 @@
 //
 // # Condition Types
 //
-// The orchestrator evaluates three mandatory condition types by exact string
-// match: [ConditionTypeReady], [ConditionTypeProvisioningSucceeded], and
-// [ConditionTypeDegraded]. Module controllers must set these conditions to
-// participate in cluster-wide health aggregation.
+// The orchestrator evaluates two mandatory condition types by exact string
+// match: [ConditionTypeReady] and [ConditionTypeProvisioningSucceeded].
+// Module controllers must set these conditions to participate in
+// cluster-wide health aggregation.
 //
 // # Phases
 //

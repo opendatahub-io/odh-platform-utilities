@@ -116,25 +116,6 @@ status aggregation.
 | `True` | All manifests applied successfully |
 | `False` | Manifest application failed |
 
-### `Degraded` (`ConditionTypeDegraded`)
-
-Indicates the module is functioning but impaired. The orchestrator reports
-this in cluster-wide health.
-
-| Status | Meaning |
-|--------|---------|
-| `True` | Module is degraded (partial availability) |
-| `False` | Module is not degraded |
-
-### Condition Combinations
-
-| Ready | Degraded | Meaning |
-|-------|----------|---------|
-| `True` | `False` | Fully healthy |
-| `True` | `True` | Partially available — some features impaired |
-| `False` | `True` | Not available, with known degradation cause |
-| `False` | `False` | Not available (e.g. still provisioning) |
-
 ## How the Orchestrator Reads These
 
 The orchestrator evaluates module CRs in the following order:
@@ -146,11 +127,9 @@ The orchestrator evaluates module CRs in the following order:
    runlevel have `Ready=True`.
 3. **ProvisioningSucceeded condition**: Used for status aggregation and
    reporting. Not a gate for DAG progression by itself.
-4. **Degraded condition**: Reported in cluster-wide health. Does not block
-   DAG progression if `Ready=True`.
-5. **Releases** (`.status.releases`): Read to detect module versions and
+4. **Releases** (`.status.releases`): Read to detect module versions and
    determine whether upgrade mode should be entered.
-6. **ObservedGeneration**: Compared with `.metadata.generation` to detect
+5. **ObservedGeneration**: Compared with `.metadata.generation` to detect
    whether the controller has processed the latest spec. Stale conditions
    (where `observedGeneration < generation`) are treated as `Unknown`.
 
@@ -161,7 +140,6 @@ The orchestrator evaluates module CRs in the following order:
 | `.status.phase` | ✓ | |
 | `Ready` condition | ✓ (DAG gate) | |
 | `ProvisioningSucceeded` condition | ✓ (aggregation) | |
-| `Degraded` condition | ✓ (health) | |
 | `.status.releases` | ✓ (upgrade mode) | |
 | `.status.observedGeneration` | ✓ (staleness) | |
 | `Condition.Message` | | ✓ |

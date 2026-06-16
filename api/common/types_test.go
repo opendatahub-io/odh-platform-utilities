@@ -110,10 +110,9 @@ func TestConditionsAccessor(t *testing.T) {
 			ObservedGeneration: 1,
 		},
 		{
-			Type:               string(common.ConditionTypeDegraded),
-			Status:             metav1.ConditionFalse,
-			Reason:             "NotDegraded",
-			Severity:           common.ConditionSeverityInfo,
+			Type:               string(common.ConditionTypeProvisioningSucceeded),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Provisioned",
 			LastTransitionTime: metav1.Now(),
 		},
 	}
@@ -123,7 +122,7 @@ func TestConditionsAccessor(t *testing.T) {
 	assert.Len(t, got, 2)
 	assert.Equal(t, string(common.ConditionTypeReady), got[0].Type)
 	assert.Equal(t, metav1.ConditionTrue, got[0].Status)
-	assert.Equal(t, string(common.ConditionTypeDegraded), got[1].Type)
+	assert.Equal(t, string(common.ConditionTypeProvisioningSucceeded), got[1].Type)
 }
 
 func TestWithReleases(t *testing.T) {
@@ -167,7 +166,6 @@ func TestConditionTypeConstants(t *testing.T) {
 
 	assert.Equal(t, common.ConditionTypeReady, common.ConditionType("Ready"))
 	assert.Equal(t, common.ConditionTypeProvisioningSucceeded, common.ConditionType("ProvisioningSucceeded"))
-	assert.Equal(t, common.ConditionTypeDegraded, common.ConditionType("Degraded"))
 }
 
 func TestPhaseConstants(t *testing.T) {
