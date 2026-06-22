@@ -82,3 +82,26 @@ func CustomResourceDefinitionExists(ctx context.Context, cli client.Reader, crdG
 		return false, nil
 	})
 }
+
+// HasCRD reports whether a CRD with the given GroupKind exists and is
+// Established. It is a boolean convenience wrapper around
+// [CustomResourceDefinitionExists].
+//
+// Returns (true, nil) when the CRD exists, (false, nil) when it is absent
+// or not yet established, and (false, err) on unexpected API errors.
+//
+// Note: context cancellation (e.g. during shutdown) is treated as
+// "CRD absent" (false, nil) because [wait.Interrupted] does not
+// distinguish timeout from cancellation.
+func HasCRD(ctx context.Context, cli client.Reader, gk schema.GroupKind) (bool, error) {
+	err := CustomResourceDefinitionExists(ctx, cli, gk)
+	if err == nil {
+		return true, nil
+	}
+
+	if wait.Interrupted(err) {
+		return false, nil
+	}
+
+	return false, err
+}
