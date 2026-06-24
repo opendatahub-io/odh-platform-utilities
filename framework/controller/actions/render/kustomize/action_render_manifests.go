@@ -62,6 +62,12 @@ func WithManifestsOptions(values ...kustomize.EngineOptsFn) ActionOpts {
 	}
 }
 
+func WithNamespace(ns string) ActionOpts {
+	return WithNamespaceFn(func(_ context.Context, _ *types.ReconciliationRequest) (string, error) {
+		return ns, nil
+	})
+}
+
 func WithNamespaceFn(fn actions.Getter[string]) ActionOpts {
 	return func(a *Action) {
 		if fn != nil {

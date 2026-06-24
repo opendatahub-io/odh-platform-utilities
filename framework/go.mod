@@ -15,6 +15,7 @@ require (
 	github.com/opendatahub-io/odh-platform-utilities v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/xid v1.6.0
+	github.com/spf13/afero v1.15.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.2
 	k8s.io/apiextensions-apiserver v0.35.2

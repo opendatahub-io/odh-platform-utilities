@@ -19,6 +19,7 @@ const (
 )
 
 type Engine struct {
+	krustyOpts *krusty.Options
 	k          *krusty.Kustomizer
 	fs         filesys.FileSystem
 	renderOpts renderOpts
@@ -26,8 +27,8 @@ type Engine struct {
 
 func NewEngine(opts ...EngineOptsFn) *Engine {
 	e := Engine{
-		k:  krusty.MakeKustomizer(krusty.MakeDefaultOptions()),
-		fs: filesys.MakeFsOnDisk(),
+		krustyOpts: krusty.MakeDefaultOptions(),
+		fs:         filesys.MakeFsOnDisk(),
 		renderOpts: renderOpts{
 			kustomizationFileName:    DefaultKustomizationFileName,
 			kustomizationFileOverlay: DefaultKustomizationFilePath,
@@ -38,6 +39,7 @@ func NewEngine(opts ...EngineOptsFn) *Engine {
 		fn(&e)
 	}
 
+	e.k = krusty.MakeKustomizer(e.krustyOpts)
 	return &e
 }
 

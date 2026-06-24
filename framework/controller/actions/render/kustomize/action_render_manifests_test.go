@@ -4,11 +4,13 @@ import (
 	"context"
 	"path"
 	"testing"
+	"testing/fstest"
 
 	"github.com/rs/xid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	kztypes "sigs.k8s.io/kustomize/api/types"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 
 	common "github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -16,6 +18,7 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/kustomize"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 	mk "github.com/opendatahub-io/odh-platform-utilities/framework/render/kustomize"
+	kfs "github.com/opendatahub-io/odh-platform-utilities/framework/render/kustomize/fs"
 
 	. "github.com/onsi/gomega"
 )
@@ -25,6 +28,23 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 resources:
 - configmap.yaml
 - deployment.yaml
+`
+
+// kustomization that pulls resources from sibling directories via ../ paths.
+const testKustomizationCrossDir = `
+apiVersion: kustomize.config.k8s.io/v1beta1
+resources:
+- ../shared/configmap.yaml
+- ../extra/foo/deployment.yaml
+`
+
+// kustomization that generates a ConfigMap from a params.env file injected at render time.
+const testKustomizationParamsEnv = `
+apiVersion: kustomize.config.k8s.io/v1beta1
+configMapGenerator:
+- name: params
+  envs:
+  - params.env
 `
 
 const testConfigMap = `
@@ -229,6 +249,159 @@ func TestRenderNoNamespaceFn(t *testing.T) {
 	err := action(ctx, rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Resources).Should(HaveLen(2))
+}
+
+func TestRenderWithUnionFS(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		fsPrefix     string // subdirectory prefix inside the io.FS ("" = root)
+		manifestPath string // ManifestInfo.Path passed to the action
+	}{
+		{
+			name:         "root",
+			fsPrefix:     "",
+			manifestPath: ".",
+		},
+		{
+			name:         "subdir",
+			fsPrefix:     "base-manifests/",
+			manifestPath: "base-manifests",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			g := NewWithT(t)
+			ctx := context.Background()
+
+			// Base: io.FS (simulates embed.FS) with manifest files — read-only.
+			baseFs, err := kfs.NewFromIOFS(fstest.MapFS{
+				tc.fsPrefix + "configmap.yaml":  &fstest.MapFile{Data: []byte(testConfigMap)},
+				tc.fsPrefix + "deployment.yaml": &fstest.MapFile{Data: []byte(testDeployment)},
+			}, "")
+			g.Expect(err).To(Succeed())
+
+			// Overlay: in-memory FS injecting kustomization.yaml dynamically.
+			overlayFs := kfs.NewMemoryFs()
+			g.Expect(overlayFs.WriteFile(tc.fsPrefix+"kustomization.yaml", []byte(testKustomization))).To(Succeed())
+
+			unionFs, err := kfs.NewUnionFs(baseFs, kfs.WithOverlayFs(overlayFs))
+			g.Expect(err).To(Succeed())
+
+			action := kustomize.NewAction(
+				kustomize.WithCache(false),
+				kustomize.WithNamespace("test-ns"),
+				kustomize.WithManifestsOptions(mk.WithEngineFS(unionFs)),
+			)
+
+			rr := &types.ReconciliationRequest{
+				Instance:  minimalInstance(),
+				Manifests: []types.ManifestInfo{{Path: tc.manifestPath}},
+			}
+
+			err = action(ctx, rr)
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(rr.Resources).Should(HaveLen(2))
+
+			for _, r := range rr.Resources {
+				g.Expect(r.GetNamespace()).Should(Equal("test-ns"))
+			}
+		})
+	}
+}
+
+func TestRenderWithUnionFSCrossDirectoryRefs(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Base io.FS: resources split across two sibling directories.
+	//
+	//   shared/configmap.yaml       ← referenced as ../shared/configmap.yaml
+	//   extra/foo/deployment.yaml   ← referenced as ../extra/foo/deployment.yaml
+	//
+	baseFs, err := kfs.NewFromIOFS(fstest.MapFS{
+		"shared/configmap.yaml":     &fstest.MapFile{Data: []byte(testConfigMap)},
+		"extra/foo/deployment.yaml": &fstest.MapFile{Data: []byte(testDeployment)},
+	}, "")
+	g.Expect(err).To(Succeed())
+
+	// Overlay: kustomization.yaml lives in "manifests/" and reaches into sibling dirs.
+	overlayFs := kfs.NewMemoryFs()
+	g.Expect(overlayFs.WriteFile("manifests/kustomization.yaml", []byte(testKustomizationCrossDir))).To(Succeed())
+
+	unionFs, err := kfs.NewUnionFs(baseFs, kfs.WithOverlayFs(overlayFs))
+	g.Expect(err).To(Succeed())
+
+	action := kustomize.NewAction(
+		kustomize.WithCache(false),
+		kustomize.WithNamespace("test-ns"),
+		kustomize.WithManifestsOptions(
+			mk.WithEngineFS(unionFs),
+			mk.WithLoadRestrictions(kztypes.LoadRestrictionsNone),
+		),
+	)
+
+	rr := &types.ReconciliationRequest{
+		Instance:  minimalInstance(),
+		Manifests: []types.ManifestInfo{{Path: "manifests"}},
+	}
+
+	err = action(ctx, rr)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(rr.Resources).Should(HaveLen(2))
+
+	for _, r := range rr.Resources {
+		g.Expect(r.GetNamespace()).Should(Equal("test-ns"))
+	}
+}
+
+func TestRenderWithUnionFSParamsEnv(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Base io.FS: kustomization that generates a ConfigMap from params.env.
+	// params.env itself is NOT in the base — it is injected at render time via the overlay.
+	baseFs, err := kfs.NewFromIOFS(fstest.MapFS{
+		"kustomization.yaml": &fstest.MapFile{Data: []byte(testKustomizationParamsEnv)},
+	}, "")
+	g.Expect(err).To(Succeed())
+
+	// Overlay: inject params.env with the values specific to this render.
+	overlayFs := kfs.NewMemoryFs()
+	g.Expect(overlayFs.WriteFile("params.env", []byte("HOST=example.com\nPORT=8080\n"))).To(Succeed())
+
+	unionFs, err := kfs.NewUnionFs(baseFs, kfs.WithOverlayFs(overlayFs))
+	g.Expect(err).To(Succeed())
+
+	action := kustomize.NewAction(
+		kustomize.WithCache(false),
+		kustomize.WithNamespace("test-ns"),
+		kustomize.WithManifestsOptions(mk.WithEngineFS(unionFs)),
+	)
+
+	rr := &types.ReconciliationRequest{
+		Instance:  minimalInstance(),
+		Manifests: []types.ManifestInfo{{Path: "."}},
+	}
+
+	err = action(ctx, rr)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	g.Expect(rr.Resources).Should(HaveLen(1))
+	g.Expect(rr.Resources[0].GetKind()).Should(Equal("ConfigMap"))
+	g.Expect(rr.Resources[0].GetName()).Should(HavePrefix("params-"))
+	g.Expect(rr.Resources[0].Object["data"]).Should(SatisfyAll(
+		HaveKeyWithValue("HOST", "example.com"),
+		HaveKeyWithValue("PORT", "8080"),
+	))
 }
 
 func TestRenderWithCache(t *testing.T) {
