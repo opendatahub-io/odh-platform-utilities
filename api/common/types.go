@@ -232,6 +232,7 @@ func (s *ComponentReleaseStatus) GetRelease(name string) *ComponentRelease {
 			return &s.Releases[i]
 		}
 	}
+
 	return nil
 }
 
@@ -245,6 +246,7 @@ func (s *ComponentReleaseStatus) SetRelease(r ComponentRelease) {
 			return
 		}
 	}
+
 	s.Releases = append(s.Releases, r)
 }
 
@@ -255,6 +257,7 @@ func (s *ComponentReleaseStatus) GetPlatformRelease() string {
 	if r == nil {
 		return ""
 	}
+
 	return r.Version
 }
 
