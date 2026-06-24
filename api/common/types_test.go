@@ -148,6 +148,89 @@ func TestWithReleases(t *testing.T) {
 	assert.Equal(t, "v2.16.0", got.Releases[0].Version)
 }
 
+func TestReleasePlatformConstant(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "platform", common.ReleasePlatform)
+}
+
+func TestGetRelease(t *testing.T) {
+	t.Parallel()
+
+	s := &common.ComponentReleaseStatus{
+		Releases: []common.ComponentRelease{
+			{Name: "dashboard", Version: "v2.0.0"},
+			{Name: common.ReleasePlatform, Version: "3.5.0"},
+		},
+	}
+
+	got := s.GetRelease(common.ReleasePlatform)
+	require.NotNil(t, got)
+	assert.Equal(t, "3.5.0", got.Version)
+
+	assert.Nil(t, s.GetRelease("nonexistent"))
+}
+
+func TestSetRelease_Insert(t *testing.T) {
+	t.Parallel()
+
+	s := &common.ComponentReleaseStatus{}
+	s.SetRelease(common.ComponentRelease{Name: common.ReleasePlatform, Version: "3.5.0"})
+
+	assert.Len(t, s.Releases, 1)
+	assert.Equal(t, common.ReleasePlatform, s.Releases[0].Name)
+	assert.Equal(t, "3.5.0", s.Releases[0].Version)
+}
+
+func TestSetRelease_Update(t *testing.T) {
+	t.Parallel()
+
+	s := &common.ComponentReleaseStatus{
+		Releases: []common.ComponentRelease{
+			{Name: common.ReleasePlatform, Version: "3.4.0"},
+			{Name: "mymodule", Version: "1.0.0"},
+		},
+	}
+
+	s.SetRelease(common.ComponentRelease{Name: common.ReleasePlatform, Version: "3.5.0"})
+
+	assert.Len(t, s.Releases, 2)
+	got := s.GetRelease(common.ReleasePlatform)
+	require.NotNil(t, got)
+	assert.Equal(t, "3.5.0", got.Version)
+}
+
+func TestGetPlatformRelease(t *testing.T) {
+	t.Parallel()
+
+	s := &common.ComponentReleaseStatus{}
+	assert.Empty(t, s.GetPlatformRelease())
+
+	s.Releases = []common.ComponentRelease{
+		{Name: "mymodule", Version: "1.0.0"},
+		{Name: common.ReleasePlatform, Version: "3.5.0"},
+	}
+	assert.Equal(t, "3.5.0", s.GetPlatformRelease())
+}
+
+func TestSetPlatformRelease(t *testing.T) {
+	t.Parallel()
+
+	s := &common.ComponentReleaseStatus{
+		Releases: []common.ComponentRelease{
+			{Name: "mymodule", Version: "1.0.0"},
+		},
+	}
+
+	s.SetPlatformRelease("3.5.0")
+	assert.Len(t, s.Releases, 2)
+	assert.Equal(t, "3.5.0", s.GetPlatformRelease())
+
+	s.SetPlatformRelease("3.6.0")
+	assert.Len(t, s.Releases, 2)
+	assert.Equal(t, "3.6.0", s.GetPlatformRelease())
+}
+
 func TestManagementStateConstants(t *testing.T) {
 	t.Parallel()
 
