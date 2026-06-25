@@ -1,9 +1,14 @@
 package metrics
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
+
+//nolint:gochecknoglobals
+var registerOnce sync.Once
 
 // ReconcileDuration measures reconcile loop duration in seconds.
 //
@@ -33,6 +38,9 @@ var ReconcileTotal = prometheus.NewCounterVec(
 )
 
 // Register registers all module metrics with the controller-runtime registry.
+// It is safe to call multiple times; registration happens only once.
 func Register() {
-	ctrlmetrics.Registry.MustRegister(ReconcileDuration, ReconcileTotal)
+	registerOnce.Do(func() {
+		ctrlmetrics.Registry.MustRegister(ReconcileDuration, ReconcileTotal)
+	})
 }
