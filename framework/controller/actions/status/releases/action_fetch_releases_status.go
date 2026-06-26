@@ -2,7 +2,9 @@ package releases
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,11 +22,20 @@ const (
 )
 
 type Action struct {
+	fsys                   fs.FS
 	metadataFilePathFn     func(rr *types.ReconciliationRequest) string
 	componentReleaseStatus common.ComponentReleaseStatus
 }
 
 type ActionOpts func(*Action)
+
+func WithFS(fsys fs.FS) ActionOpts {
+	return func(a *Action) {
+		if fsys != nil {
+			a.fsys = fsys
+		}
+	}
+}
 
 func WithMetadataFilePath(fn func(rr *types.ReconciliationRequest) string) ActionOpts {
 	return func(a *Action) {
@@ -60,18 +71,11 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 func (a *Action) render(ctx context.Context, rr *types.ReconciliationRequest) ([]common.ComponentRelease, error) {
 	log := logf.FromContext(ctx)
 
-	metadataPath := ""
+	metadataPath := a.metadataFilePathFn(rr)
 
-	if a.metadataFilePathFn != nil {
-		metadataPath = a.metadataFilePathFn(rr)
-	} else {
-		controllerName := strings.ToLower(rr.Instance.GetObjectKind().GroupVersionKind().Kind)
-		metadataPath = filepath.Join(rr.ManifestsBasePath, controllerName, ComponentMetadataFilename)
-	}
-
-	yamlData, err := os.ReadFile(metadataPath)
+	yamlData, err := fs.ReadFile(a.fsys, metadataPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			log.V(3).Info("Metadata file not found, proceeding with empty releases", "metadataFilePath", metadataPath)
 			return nil, nil
 		}
@@ -102,7 +106,15 @@ func (a *Action) render(ctx context.Context, rr *types.ReconciliationRequest) ([
 }
 
 func NewAction(opts ...ActionOpts) actions.Fn {
-	action := Action{}
+	action := Action{
+		fsys: os.DirFS("/"),
+		metadataFilePathFn: func(rr *types.ReconciliationRequest) string {
+			cn := strings.ToLower(rr.Instance.GetObjectKind().GroupVersionKind().Kind)
+			mp := filepath.Join(rr.ManifestsBasePath, cn, ComponentMetadataFilename)
+
+			return strings.TrimPrefix(mp, "/")
+		},
+	}
 
 	for _, opt := range opts {
 		opt(&action)
