@@ -91,7 +91,7 @@ func Apply(
 		return fmt.Errorf("reading %s: %w", file, err)
 	}
 
-	paramsMap, err := parseParamsBytes(content)
+	paramsMap, err := Unmarshal(content)
 	if err != nil {
 		return fmt.Errorf("parsing %s: %w", file, err)
 	}
@@ -108,7 +108,7 @@ func Apply(
 		return nil
 	}
 
-	data, err := serializeParams(paramsMap)
+	data, err := Marshal(paramsMap)
 	if err != nil {
 		return fmt.Errorf("serializing %s: %w", file, err)
 	}
@@ -130,13 +130,13 @@ func ApplyAtPath(
 	return Apply(filesys.MakeFsOnDisk(), filepath.Join(path, file), mappers...)
 }
 
-// parseParamsBytes reads key=value lines from raw bytes.
+// Unmarshal reads key=value lines from raw bytes.
 // Blank lines and comment lines (starting with '#') are skipped; keys are trimmed.
 // Inline comments within values are NOT stripped — '#' is treated as a literal
 // character so that mapper-injected values containing '#' survive round-trips.
 // Lines without '=' (bare keys) are not supported and are silently ignored,
-// as the write-back via serializeParams would otherwise drop them.
-func parseParamsBytes(content []byte) (map[string]string, error) {
+// as the write-back via Marshal would otherwise drop them.
+func Unmarshal(content []byte) (map[string]string, error) {
 	result := make(map[string]string)
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 
@@ -155,8 +155,8 @@ func parseParamsBytes(content []byte) (map[string]string, error) {
 	return result, scanner.Err()
 }
 
-// serializeParams encodes a params map to sorted key=value lines.
-func serializeParams(params map[string]string) ([]byte, error) {
+// Marshal encodes a params map to sorted key=value lines.
+func Marshal(params map[string]string) ([]byte, error) {
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)

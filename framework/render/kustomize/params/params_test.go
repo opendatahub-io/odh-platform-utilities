@@ -1,11 +1,8 @@
 package params_test
 
 import (
-	"bufio"
-	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -163,31 +160,15 @@ func TestApplyAtPathNoOpWhenFileAbsent(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 }
 
-// mustParseParams parses key=value content from bytes using the same rules as the
-// production parser: blank lines and comment lines are skipped, keys are trimmed,
-// and inline comments are stripped from values.
+// mustParseParams parses key=value content using the production Unmarshal, failing on error.
 func mustParseParams(t *testing.T, content []byte, err error) map[string]string {
 	t.Helper()
 
 	g := NewWithT(t)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
-	result := make(map[string]string)
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		key, value, found := strings.Cut(line, "=")
-		if found {
-			result[strings.TrimSpace(key)] = value
-		}
-	}
-
-	g.Expect(scanner.Err()).ShouldNot(HaveOccurred())
+	result, err := params.Unmarshal(content)
+	g.Expect(err).ShouldNot(HaveOccurred())
 
 	return result
 }
