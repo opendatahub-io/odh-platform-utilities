@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -73,36 +72,16 @@ func (a *Action) render(ctx context.Context, rr *types.ReconciliationRequest) ([
 
 	metadataPath := a.metadataFilePathFn(rr)
 
-	yamlData, err := fs.ReadFile(a.fsys, metadataPath)
+	releases, err := ReadComponentReleases(a.fsys, metadataPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			log.V(3).Info("Metadata file not found, proceeding with empty releases", "metadataFilePath", metadataPath)
 			return nil, nil
 		}
-		return nil, fmt.Errorf("error reading metadata file: %w", err)
+		return nil, err
 	}
 
-	componentMeta := common.ComponentReleaseStatus{}
-	if err := yaml.Unmarshal(yamlData, &componentMeta); err != nil {
-		return nil, fmt.Errorf("error unmarshaling YAML: %w", err)
-	}
-
-	componentReleasesStatus := make([]common.ComponentRelease, 0, len(componentMeta.Releases))
-	for _, release := range componentMeta.Releases {
-		componentVersion := strings.TrimSpace(release.Version)
-
-		if componentVersion == "" {
-			continue
-		}
-
-		componentReleasesStatus = append(componentReleasesStatus, common.ComponentRelease{
-			Name:    release.Name,
-			Version: componentVersion,
-			RepoURL: release.RepoURL,
-		})
-	}
-
-	return componentReleasesStatus, nil
+	return releases, nil
 }
 
 func NewAction(opts ...ActionOpts) actions.Fn {
