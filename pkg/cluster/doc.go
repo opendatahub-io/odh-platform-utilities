@@ -16,12 +16,14 @@
 //   - Standard OwnerReferences: [ControlledBy] and [OwnedBy] add native
 //     Kubernetes OwnerReferences. Use these when owner and child reside in the
 //     same namespace (or the owner is cluster-scoped and the child is too).
-//   - Dynamic ownership via labels/annotations: [WithDynamicOwner] stamps
-//     ownership metadata on child resources, and [EnqueueOwner] returns a
-//     [handler.MapFunc] that resolves those annotations into reconcile
-//     requests. Use this when child resources live in different namespaces
-//     than the owner, since Kubernetes OwnerReferences require same-namespace
-//     residency.
+//   - Annotation-based owner resolution: [WithOwnerAnnotations] stamps
+//     ownership metadata on child resources, and [EnqueueByOwnerAnnotation]
+//     returns a [handler.MapFunc] that resolves those annotations into
+//     reconcile requests. Use this when child resources live in different
+//     namespaces than the owner, since Kubernetes OwnerReferences require
+//     same-namespace residency. This is distinct from OwnerReference-based
+//     dynamic ownership (e.g. dynamicownership.Action), which sets real
+//     OwnerReferences for same namespace resources.
 //
 // # Cluster Detection
 //
