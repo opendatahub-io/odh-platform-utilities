@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	frameworkclient "github.com/opendatahub-io/odh-platform-utilities/framework/client"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	odherrors "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/errors"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
@@ -194,8 +195,16 @@ func NewReconciler[T api.PlatformObject](mgr manager.Manager, name string, objec
 		return nil, fmt.Errorf("unable to construct a Dynamic client: %w", err)
 	}
 
+	// Ensure cache coherence: if the manager's client is not already
+	// the unstructured-wrapping client, wrap it so all Get/List go
+	// through the same informer cache the watches populate.
+	cl := mgr.GetClient()
+	if _, ok := cl.(*frameworkclient.Client); !ok {
+		cl = frameworkclient.New(cl)
+	}
+
 	cc := Reconciler{
-		Client:            mgr.GetClient(),
+		Client:            cl,
 		Scheme:            mgr.GetScheme(),
 		Log:               ctrl.Log.WithName("controllers").WithName(name),
 		Recorder:          mgr.GetEventRecorder(name),
