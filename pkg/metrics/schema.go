@@ -26,3 +26,15 @@ const (
 	ResultSuccess ReconcileResult = "success"
 	ResultError   ReconcileResult = "error"
 )
+
+// PrerequisiteReason represents the reason for a precondition failure.
+type PrerequisiteReason string
+
+const (
+	PrerequisiteMissingDependency    PrerequisiteReason = "missing_dependency"
+	PrerequisiteMissingConfiguration PrerequisiteReason = "missing_configuration"
+	PrerequisiteAPIUnavailable       PrerequisiteReason = "api_unavailable"
+	PrerequisiteInsufficientRBAC     PrerequisiteReason = "insufficient_rbac"
+	PrerequisiteCRDNotFound          PrerequisiteReason = "crd_not_found"
+	PrerequisiteComponentNotReady    PrerequisiteReason = "component_not_ready"
+)

@@ -24,7 +24,7 @@ type fakeAppender struct {
 	appendErr  error
 	calls      []appendCall
 	nextRef    storage.SeriesRef
-	failOnCall int // 1-indexed; 0 means all calls fail when appendErr is set.
+	failOnCall int 
 }
 
 func (f *fakeAppender) Append(
@@ -155,7 +155,6 @@ func TestRecordReconcile_AppendError(t *testing.T) {
 	})
 }
 
-// --- RecordPreconditionFailure tests ---
 
 func TestRecordPreconditionFailure(t *testing.T) {
 	t.Parallel()
@@ -163,7 +162,7 @@ func TestRecordPreconditionFailure(t *testing.T) {
 	ts := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
 
 	fa := &fakeAppender{}
-	err := metrics.RecordPreconditionFailure(fa, "monitoring", "cert-manager", ts)
+	err := metrics.RecordPreconditionFailure(fa, "monitoring", metrics.PrerequisiteMissingDependency, ts)
 	require.NoError(t, err)
 	require.Len(t, fa.calls, 1)
 
@@ -174,7 +173,7 @@ func TestRecordPreconditionFailure(t *testing.T) {
 		call.Labels.Get(model.MetricNameLabel))
 	assert.Equal(t, "monitoring",
 		call.Labels.Get(metrics.LabelModule))
-	assert.Equal(t, "cert-manager",
+	assert.Equal(t, string(metrics.PrerequisiteMissingDependency),
 		call.Labels.Get(metrics.LabelPrerequisite))
 }
 
@@ -182,7 +181,7 @@ func TestRecordPreconditionFailure_ZeroTimestamp(t *testing.T) {
 	t.Parallel()
 
 	fa := &fakeAppender{}
-	err := metrics.RecordPreconditionFailure(fa, "monitoring", "cert-manager", time.Time{})
+	err := metrics.RecordPreconditionFailure(fa, "monitoring", metrics.PrerequisiteMissingDependency, time.Time{})
 
 	require.ErrorIs(t, err, metrics.ErrTimestampRequired)
 	assert.Empty(t, fa.calls)
@@ -192,14 +191,13 @@ func TestRecordPreconditionFailure_AppendError(t *testing.T) {
 	t.Parallel()
 
 	fa := &fakeAppender{appendErr: assert.AnError}
-	err := metrics.RecordPreconditionFailure(fa, "monitoring", "cert-manager", time.Now())
+	err := metrics.RecordPreconditionFailure(fa, "monitoring", metrics.PrerequisiteMissingDependency, time.Now())
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, assert.AnError)
 	assert.Contains(t, err.Error(), "appending precondition failure metric")
 }
 
-// --- RecordBuildInfo tests ---
 
 func TestRecordBuildInfo(t *testing.T) {
 	t.Parallel()
@@ -245,7 +243,6 @@ func TestRecordBuildInfo_AppendError(t *testing.T) {
 	assert.Contains(t, err.Error(), "appending build info metric")
 }
 
-// --- RecordComponentRelease tests ---
 
 func TestRecordComponentRelease(t *testing.T) {
 	t.Parallel()

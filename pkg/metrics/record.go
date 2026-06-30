@@ -63,7 +63,7 @@ func RecordReconcile(
 func RecordPreconditionFailure(
 	a SampleAppender,
 	module string,
-	prerequisite string,
+	prerequisite PrerequisiteReason,
 	ts time.Time,
 ) error {
 	if ts.IsZero() {
@@ -73,7 +73,7 @@ func RecordPreconditionFailure(
 	failureLabels := labels.FromStrings(
 		model.MetricNameLabel, MetricPreconditionFailuresTotal,
 		LabelModule, module,
-		LabelPrerequisite, prerequisite,
+		LabelPrerequisite, string(prerequisite),
 	)
 
 	if _, err := a.Append(0, failureLabels, ts.UnixMilli(), 1); err != nil {
