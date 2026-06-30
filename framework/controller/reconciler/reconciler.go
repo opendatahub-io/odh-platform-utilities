@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
@@ -33,11 +34,8 @@ const (
 	DefaultFinalizerName             = "platform.opendatahub.io/finalizer"
 	DefaultHappyCondition            = "Ready"
 	DefaultProvisioningConditionType = "ProvisioningSucceeded"
-)
-
-const (
-	DefaultPhaseReady    string = "Ready"
-	DefaultPhaseNotReady string = "Not Ready"
+	DefaultPhaseReady                = "Ready"
+	DefaultPhaseNotReady             = "Not Ready"
 )
 
 type gvkInfo struct {
@@ -124,6 +122,12 @@ func WithPreApplyFailedReason(reason string) ReconcilerOpt {
 	}
 }
 
+func withSkipStatusConditions(pred func() bool) ReconcilerOpt {
+	return func(reconciler *Reconciler) {
+		reconciler.skipStatusConditionsFn = pred
+	}
+}
+
 // WithSkipConditionCleanup disables automatic stale condition cleanup after reconciliation.
 func WithSkipConditionCleanup() ReconcilerOpt {
 	return func(reconciler *Reconciler) {
@@ -176,6 +180,7 @@ type Reconciler struct {
 	dynamicOwnershipEnabled     bool
 	excludeFromDynamicOwnership map[schema.GroupVersionKind]struct{}
 	skipConditionCleanup        bool
+	skipStatusConditionsFn      func() bool
 }
 
 // NewReconciler creates a new reconciler for the given type.
@@ -318,8 +323,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, err
 		}
 
-		if err := r.apply(ctx, res); err != nil {
+		requeueAfter, err := r.apply(ctx, res)
+		if err != nil {
 			return ctrl.Result{}, err
+		}
+
+		if requeueAfter > 0 {
+			l.V(1).Info("scheduling requeue for DAG timeout", "after", requeueAfter.Truncate(time.Second))
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 	}
 
@@ -397,7 +408,7 @@ func (r *Reconciler) delete(ctx context.Context, res api.PlatformObject) error {
 	return nil
 }
 
-func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) error {
+func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Duration, error) {
 	l := log.FromContext(ctx)
 	l.Info("apply")
 
@@ -420,6 +431,7 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) error {
 		shouldStop = r.preApplyFn(ctx, &rr)
 	}
 
+	var requeueAfter time.Duration
 	var provisionErr error
 
 	if shouldStop {
@@ -442,6 +454,14 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) error {
 
 			provisionErr = action(actx, &rr)
 			if provisionErr != nil {
+				re := odherrors.RequeueAfterError{}
+				if errors.As(provisionErr, &re) {
+					requeueAfter = re.After
+					provisionErr = nil
+
+					continue
+				}
+
 				break
 			}
 		}
@@ -476,6 +496,12 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) error {
 		is.ObservedGeneration = rr.Instance.GetGeneration()
 	}
 
+	if r.skipStatusConditionsFn != nil && r.skipStatusConditionsFn() {
+		is.Conditions = nil
+		is.Phase = ""
+		is.ObservedGeneration = 0
+	}
+
 	err := resources.ApplyStatus(
 		ctx,
 		r.Client,
@@ -494,10 +520,15 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) error {
 			err.Error(),
 		)
 
-		return fmt.Errorf("reconcile failed: %w", err)
+		return 0, fmt.Errorf("reconcile failed: %w", err)
 	}
 
 	if provisionErr != nil {
+		se := odherrors.StopError{}
+		if errors.As(provisionErr, &se) {
+			return 0, nil
+		}
+
 		r.Recorder.Eventf(
 			res,
 			nil,
@@ -507,8 +538,8 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) error {
 			provisionErr.Error(),
 		)
 
-		return fmt.Errorf("provisioning failed: %w", provisionErr)
+		return 0, fmt.Errorf("provisioning failed: %w", provisionErr)
 	}
 
-	return nil
+	return requeueAfter, nil
 }

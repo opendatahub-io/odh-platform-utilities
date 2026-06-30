@@ -99,11 +99,24 @@ type ReconciliationRequest struct {
 	HelmCharts []HelmChartInfo
 	Resources  []unstructured.Unstructured
 
+	// SkipDeploy is set by the RunlevelGate action when the platform
+	// orchestrator has not yet reached this component's runlevel.
+	// Render, deploy, and GC actions check this flag and return early,
+	// while status-reporting actions always run so that healthy
+	// components continue to report their actual health.
+	SkipDeploy bool
+
 	Generated bool
 
 	// Extensions holds application-specific data passed between actions.
 	// Keys should be namespaced to avoid collisions.
 	Extensions map[string]any
+
+	// GateEntries holds upgrade gate entries extracted from rendered chart
+	// resources by ExtractUpgradeGates. Passed to CheckUpgradeGates so all
+	// gate sources (in-tree, cluster-discovered, chart-extracted) are
+	// merged before the gate check runs.
+	GateEntries map[string]string
 }
 
 func (rr *ReconciliationRequest) AddResources(values ...client.Object) error {

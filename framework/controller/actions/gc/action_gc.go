@@ -136,6 +136,10 @@ func WithDeletePropagationPolicy(policy metav1.DeletionPropagation) ActionOpts {
 }
 
 func (a *Action) run(ctx context.Context, rr *odhTypes.ReconciliationRequest) error {
+	if rr.SkipDeploy {
+		return nil
+	}
+
 	if !rr.Generated {
 		return nil
 	}
