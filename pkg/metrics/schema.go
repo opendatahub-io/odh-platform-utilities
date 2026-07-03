@@ -1,6 +1,5 @@
 package metrics
 
-// Metric name constants (used as the __name__ label value).
 const (
 	MetricPreconditionFailuresTotal     = "module_precondition_failures_total"
 	MetricBuildInfo                     = "module_build_info"
@@ -10,7 +9,6 @@ const (
 	MetricConditionTransitionsTotal     = "module_condition_transitions_total"
 )
 
-// Label name constants.
 const (
 	LabelModule           = "module"
 	LabelPrerequisite     = "prerequisite"
@@ -22,7 +20,6 @@ const (
 	LabelStatus           = "status"
 )
 
-// PrerequisiteReason represents the reason for a precondition failure.
 type PrerequisiteReason string
 
 const (
@@ -34,7 +31,6 @@ const (
 	PrerequisiteComponentNotReady    PrerequisiteReason = "component_not_ready"
 )
 
-// ReconcilePhase represents a phase of the action pipeline.
 type ReconcilePhase string
 
 const (
@@ -43,7 +39,6 @@ const (
 	PhaseGC     ReconcilePhase = "gc"
 )
 
-// ConditionStatus represents a Kubernetes condition status value.
 type ConditionStatus string
 
 const (

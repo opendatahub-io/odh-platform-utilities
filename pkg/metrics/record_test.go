@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/metrics"
 )
 
@@ -63,10 +64,42 @@ func TestRecordBuildInfo(t *testing.T) {
 }
 
 //nolint:paralleltest
+func TestRecordBuildInfo_RetiresOldVersion(t *testing.T) {
+	metrics.BuildInfo.Reset()
+
+	metrics.RecordBuildInfo("monitoring", "v0.3.1", "odh-observability")
+	metrics.RecordBuildInfo("monitoring", "v0.4.0", "odh-observability")
+
+	count := testutil.CollectAndCount(metrics.BuildInfo)
+	assert.Equal(t, 1, count, "old version series must be retired")
+
+	val := testutil.ToFloat64(
+		metrics.BuildInfo.WithLabelValues("monitoring", "v0.4.0", "odh-observability"),
+	)
+	assert.InDelta(t, 1.0, val, 0.001)
+}
+
+//nolint:paralleltest
 func TestRecordComponentRelease(t *testing.T) {
 	metrics.ComponentRelease.Reset()
 
 	metrics.RecordComponentRelease("monitoring", "v0.4.0", "odh-observability")
+
+	val := testutil.ToFloat64(
+		metrics.ComponentRelease.WithLabelValues("monitoring", "v0.4.0", "odh-observability"),
+	)
+	assert.InDelta(t, 1.0, val, 0.001)
+}
+
+//nolint:paralleltest
+func TestRecordComponentRelease_RetiresOldVersion(t *testing.T) {
+	metrics.ComponentRelease.Reset()
+
+	metrics.RecordComponentRelease("monitoring", "v0.3.0", "odh-observability")
+	metrics.RecordComponentRelease("monitoring", "v0.4.0", "odh-observability")
+
+	count := testutil.CollectAndCount(metrics.ComponentRelease)
+	assert.Equal(t, 1, count, "old version series must be retired")
 
 	val := testutil.ToFloat64(
 		metrics.ComponentRelease.WithLabelValues("monitoring", "v0.4.0", "odh-observability"),
@@ -101,8 +134,10 @@ func TestRecordReconcilePhaseDuration_MultipleObservations(t *testing.T) {
 func TestSetManagedResources(t *testing.T) {
 	metrics.ManagedResources.Reset()
 
-	metrics.SetManagedResources("dashboard", "apps/v1/Deployment", 5)
-	metrics.SetManagedResources("dashboard", "v1/ConfigMap", 12)
+	metrics.SetManagedResources("dashboard", map[string]int{
+		"apps/v1/Deployment": 5,
+		"v1/ConfigMap":       12,
+	})
 
 	deployments := testutil.ToFloat64(
 		metrics.ManagedResources.WithLabelValues("dashboard", "apps/v1/Deployment"),
@@ -116,25 +151,37 @@ func TestSetManagedResources(t *testing.T) {
 }
 
 //nolint:paralleltest
-func TestSetManagedResources_Updates(t *testing.T) {
+func TestSetManagedResources_RetiresOldGVKs(t *testing.T) {
 	metrics.ManagedResources.Reset()
 
-	metrics.SetManagedResources("dashboard", "apps/v1/Deployment", 5)
-	metrics.SetManagedResources("dashboard", "apps/v1/Deployment", 3)
+	metrics.SetManagedResources("dashboard", map[string]int{
+		"apps/v1/Deployment": 5,
+		"v1/ConfigMap":       12,
+		"v1/Secret":          3,
+	})
 
-	val := testutil.ToFloat64(
+	// Second call without v1/Secret — it should be retired
+	metrics.SetManagedResources("dashboard", map[string]int{
+		"apps/v1/Deployment": 4,
+		"v1/ConfigMap":       10,
+	})
+
+	count := testutil.CollectAndCount(metrics.ManagedResources)
+	assert.Equal(t, 2, count, "v1/Secret series must be retired")
+
+	deployments := testutil.ToFloat64(
 		metrics.ManagedResources.WithLabelValues("dashboard", "apps/v1/Deployment"),
 	)
-	assert.InDelta(t, 3.0, val, 0.001, "gauge should reflect latest value")
+	assert.InDelta(t, 4.0, deployments, 0.001)
 }
 
 //nolint:paralleltest
 func TestRecordConditionTransition(t *testing.T) {
 	metrics.ConditionTransitionsTotal.Reset()
 
-	metrics.RecordConditionTransition("dashboard", "Ready", metrics.ConditionTrue)
-	metrics.RecordConditionTransition("dashboard", "Ready", metrics.ConditionFalse)
-	metrics.RecordConditionTransition("dashboard", "Ready", metrics.ConditionTrue)
+	metrics.RecordConditionTransition("dashboard", common.ConditionTypeReady, metrics.ConditionTrue)
+	metrics.RecordConditionTransition("dashboard", common.ConditionTypeReady, metrics.ConditionFalse)
+	metrics.RecordConditionTransition("dashboard", common.ConditionTypeReady, metrics.ConditionTrue)
 
 	trueVal := testutil.ToFloat64(
 		metrics.ConditionTransitionsTotal.WithLabelValues("dashboard", "Ready", "True"),
@@ -162,7 +209,7 @@ func TestRecordConditionTransition_AllStatuses(t *testing.T) {
 		t.Run(s.label, func(t *testing.T) {
 			metrics.ConditionTransitionsTotal.Reset()
 
-			metrics.RecordConditionTransition("test-module", "Ready", s.status)
+			metrics.RecordConditionTransition("test-module", common.ConditionTypeReady, s.status)
 
 			val := testutil.ToFloat64(
 				metrics.ConditionTransitionsTotal.WithLabelValues("test-module", "Ready", s.label),

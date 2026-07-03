@@ -2,10 +2,12 @@ package metrics
 
 import (
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
-// RecordPreconditionFailure increments [PreconditionFailuresTotal] when a
-// module detects a missing prerequisite.
 func RecordPreconditionFailure(
 	module string,
 	prerequisite PrerequisiteReason,
@@ -13,28 +15,24 @@ func RecordPreconditionFailure(
 	PreconditionFailuresTotal.WithLabelValues(module, string(prerequisite)).Inc()
 }
 
-// RecordBuildInfo sets [BuildInfo] to 1 with the module's version and source
-// repository. Typically called once at startup.
 func RecordBuildInfo(
 	module string,
 	version string,
 	repo string,
 ) {
+	deleteMatchingLabels(BuildInfo, prometheus.Labels{LabelModule: module})
 	BuildInfo.WithLabelValues(module, version, repo).Set(1)
 }
 
-// RecordComponentRelease sets [ComponentRelease] to 1 tracking the last
-// successfully deployed component version.
 func RecordComponentRelease(
 	module string,
 	version string,
 	repo string,
 ) {
+	deleteMatchingLabels(ComponentRelease, prometheus.Labels{LabelModule: module})
 	ComponentRelease.WithLabelValues(module, version, repo).Set(1)
 }
 
-// RecordReconcilePhaseDuration observes the duration of a single reconcile
-// action phase (render, deploy, gc) in [ReconcilePhaseDurationSeconds].
 func RecordReconcilePhaseDuration(
 	module string,
 	phase ReconcilePhase,
@@ -43,22 +41,25 @@ func RecordReconcilePhaseDuration(
 	ReconcilePhaseDurationSeconds.WithLabelValues(module, string(phase)).Observe(duration.Seconds())
 }
 
-// SetManagedResources sets [ManagedResources] to the current count of
-// resources the module manages for a given GVK.
 func SetManagedResources(
 	module string,
-	groupVersionKind string,
-	count int,
+	counts map[string]int,
 ) {
-	ManagedResources.WithLabelValues(module, groupVersionKind).Set(float64(count))
+	deleteMatchingLabels(ManagedResources, prometheus.Labels{LabelModule: module})
+
+	for gvk, count := range counts {
+		ManagedResources.WithLabelValues(module, gvk).Set(float64(count))
+	}
 }
 
-// RecordConditionTransition increments [ConditionTransitionsTotal] when a
-// condition changes status.
 func RecordConditionTransition(
 	module string,
-	conditionType string,
+	conditionType common.ConditionType,
 	status ConditionStatus,
 ) {
-	ConditionTransitionsTotal.WithLabelValues(module, conditionType, string(status)).Inc()
+	ConditionTransitionsTotal.WithLabelValues(module, string(conditionType), string(status)).Inc()
+}
+
+func deleteMatchingLabels(vec *prometheus.GaugeVec, match prometheus.Labels) {
+	vec.DeletePartialMatch(match)
 }
