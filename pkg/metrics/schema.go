@@ -2,29 +2,24 @@ package metrics
 
 // Metric name constants (used as the __name__ label value).
 const (
-	MetricReconcileTotal            = "module_reconcile_total"
-	MetricReconcileDurationSeconds  = "module_reconcile_duration_seconds"
-	MetricPreconditionFailuresTotal = "module_precondition_failures_total"
-	MetricBuildInfo                 = "module_build_info"
-	MetricComponentRelease          = "module_component_release"
+	MetricPreconditionFailuresTotal     = "module_precondition_failures_total"
+	MetricBuildInfo                     = "module_build_info"
+	MetricComponentRelease              = "module_component_release"
+	MetricReconcilePhaseDurationSeconds = "module_reconcile_phase_duration_seconds"
+	MetricManagedResources              = "module_managed_resources"
+	MetricConditionTransitionsTotal     = "module_condition_transitions_total"
 )
 
 // Label name constants.
 const (
-	LabelModule       = "module"
-	LabelResult       = "result"
-	LabelPrerequisite = "prerequisite"
-	LabelVersion      = "version"
-	LabelRepo         = "repo"
-)
-
-// ReconcileResult represents the outcome of a reconcile invocation.
-type ReconcileResult string
-
-// Typed result values.
-const (
-	ResultSuccess ReconcileResult = "success"
-	ResultError   ReconcileResult = "error"
+	LabelModule           = "module"
+	LabelPrerequisite     = "prerequisite"
+	LabelVersion          = "version"
+	LabelRepo             = "repo"
+	LabelPhase            = "phase"
+	LabelGroupVersionKind = "group_version_kind"
+	LabelConditionType    = "condition_type"
+	LabelStatus           = "status"
 )
 
 // PrerequisiteReason represents the reason for a precondition failure.
@@ -37,4 +32,22 @@ const (
 	PrerequisiteInsufficientRBAC     PrerequisiteReason = "insufficient_rbac"
 	PrerequisiteCRDNotFound          PrerequisiteReason = "crd_not_found"
 	PrerequisiteComponentNotReady    PrerequisiteReason = "component_not_ready"
+)
+
+// ReconcilePhase represents a phase of the action pipeline.
+type ReconcilePhase string
+
+const (
+	PhaseRender ReconcilePhase = "render"
+	PhaseDeploy ReconcilePhase = "deploy"
+	PhaseGC     ReconcilePhase = "gc"
+)
+
+// ConditionStatus represents a Kubernetes condition status value.
+type ConditionStatus string
+
+const (
+	ConditionTrue    ConditionStatus = "True"
+	ConditionFalse   ConditionStatus = "False"
+	ConditionUnknown ConditionStatus = "Unknown"
 )

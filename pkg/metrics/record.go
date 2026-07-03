@@ -1,139 +1,64 @@
 package metrics
 
 import (
-	"errors"
-	"fmt"
 	"time"
-
-	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/model/labels"
 )
 
-// ErrTimestampRequired is returned by [RecordReconcile] when the
-// timestamp is zero.
-var ErrTimestampRequired = errors.New("record reconcile: timestamp is required")
-
-// RecordReconcile appends two metric samples for a reconcile invocation:
-// [MetricReconcileTotal] (value 1) and [MetricReconcileDurationSeconds].
-// It does not call Commit; callers manage the transaction lifecycle.
-func RecordReconcile(
-	a SampleAppender,
-	module string,
-	ts time.Time,
-	duration time.Duration,
-	reconcileErr error,
-) error {
-	if ts.IsZero() {
-		return ErrTimestampRequired
-	}
-
-	result := ResultSuccess
-	if reconcileErr != nil {
-		result = ResultError
-	}
-
-	tsMs := ts.UnixMilli()
-
-	totalLabels := labels.FromStrings(
-		model.MetricNameLabel, MetricReconcileTotal,
-		LabelModule, module,
-		LabelResult, string(result),
-	)
-
-	if _, err := a.Append(0, totalLabels, tsMs, 1); err != nil {
-		return fmt.Errorf("appending reconcile total metric: %w", err)
-	}
-
-	durationLabels := labels.FromStrings(
-		model.MetricNameLabel, MetricReconcileDurationSeconds,
-		LabelModule, module,
-	)
-
-	if _, err := a.Append(0, durationLabels, tsMs, duration.Seconds()); err != nil {
-		return fmt.Errorf("appending reconcile duration metric: %w", err)
-	}
-
-	return nil
-}
-
-
-// RecordPreconditionFailure appends one metric sample when a module detects
-// a missing prerequisite operator (e.g. Cert Manager, Cluster Observability
-// Operator). It does not call Commit.
+// RecordPreconditionFailure increments [PreconditionFailuresTotal] when a
+// module detects a missing prerequisite.
 func RecordPreconditionFailure(
-	a SampleAppender,
 	module string,
 	prerequisite PrerequisiteReason,
-	ts time.Time,
-) error {
-	if ts.IsZero() {
-		return ErrTimestampRequired
-	}
-
-	failureLabels := labels.FromStrings(
-		model.MetricNameLabel, MetricPreconditionFailuresTotal,
-		LabelModule, module,
-		LabelPrerequisite, string(prerequisite),
-	)
-
-	if _, err := a.Append(0, failureLabels, ts.UnixMilli(), 1); err != nil {
-		return fmt.Errorf("appending precondition failure metric: %w", err)
-	}
-
-	return nil
+) {
+	PreconditionFailuresTotal.WithLabelValues(module, string(prerequisite)).Inc()
 }
 
-// RecordBuildInfo appends one metric sample with the module's version and
-// source repository. Typically called once at startup. It does not call Commit.
+// RecordBuildInfo sets [BuildInfo] to 1 with the module's version and source
+// repository. Typically called once at startup.
 func RecordBuildInfo(
-	a SampleAppender,
 	module string,
 	version string,
 	repo string,
-	ts time.Time,
-) error {
-	if ts.IsZero() {
-		return ErrTimestampRequired
-	}
-
-	buildInfoLabels := labels.FromStrings(
-		model.MetricNameLabel, MetricBuildInfo,
-		LabelModule, module,
-		LabelVersion, version,
-		LabelRepo, repo,
-	)
-
-	if _, err := a.Append(0, buildInfoLabels, ts.UnixMilli(), 1); err != nil {
-		return fmt.Errorf("appending build info metric: %w", err)
-	}
-
-	return nil
+) {
+	BuildInfo.WithLabelValues(module, version, repo).Set(1)
 }
 
-// RecordComponentRelease appends one metric sample tracking the last
-// successfully deployed component version. Useful during upgrades to verify
-// all modules progressed. It does not call Commit.
+// RecordComponentRelease sets [ComponentRelease] to 1 tracking the last
+// successfully deployed component version.
 func RecordComponentRelease(
-	a SampleAppender,
 	module string,
 	version string,
 	repo string,
-	ts time.Time,
-) error {
-	if ts.IsZero() {
-		return ErrTimestampRequired
-	}
+) {
+	ComponentRelease.WithLabelValues(module, version, repo).Set(1)
+}
 
-	releaseLabels := labels.FromStrings(
-		model.MetricNameLabel, MetricComponentRelease,
-		LabelModule, module,
-		LabelVersion, version,
-		LabelRepo, repo,
-	)
+// RecordReconcilePhaseDuration observes the duration of a single reconcile
+// action phase (render, deploy, gc) in [ReconcilePhaseDurationSeconds].
+func RecordReconcilePhaseDuration(
+	module string,
+	phase ReconcilePhase,
+	duration time.Duration,
+) {
+	ReconcilePhaseDurationSeconds.WithLabelValues(module, string(phase)).Observe(duration.Seconds())
+}
 
-	if _, err := a.Append(0, releaseLabels, ts.UnixMilli(), 1); err != nil {
-		return fmt.Errorf("appending component release metric: %w", err)
-	}
+// SetManagedResources sets [ManagedResources] to the current count of
+// resources the module manages for a given GVK.
+func SetManagedResources(
+	module string,
+	groupVersionKind string,
+	count int,
+) {
+	ManagedResources.WithLabelValues(module, groupVersionKind).Set(float64(count))
+}
 
-	return nil
+// RecordConditionTransition increments [ConditionTransitionsTotal] when a
+// condition changes status.
+func RecordConditionTransition(
+	module string,
+	conditionType string,
+	status ConditionStatus,
+) {
+	ConditionTransitionsTotal.WithLabelValues(module, conditionType, string(status)).Inc()
 }

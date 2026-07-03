@@ -4,286 +4,170 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/metrics"
 )
 
-type appendCall struct {
-	Labels labels.Labels
-	Ref    storage.SeriesRef
-	T      int64
-	V      float64
+//nolint:paralleltest
+func TestRecordPreconditionFailure(t *testing.T) {
+	metrics.PreconditionFailuresTotal.Reset()
+
+	metrics.RecordPreconditionFailure("monitoring", metrics.PrerequisiteMissingDependency)
+
+	val := testutil.ToFloat64(
+		metrics.PreconditionFailuresTotal.WithLabelValues("monitoring", "missing_dependency"),
+	)
+	assert.InDelta(t, 1.0, val, 0.001)
 }
 
-type fakeAppender struct {
-	appendErr  error
-	calls      []appendCall
-	nextRef    storage.SeriesRef
-	failOnCall int 
-}
-
-func (f *fakeAppender) Append(
-	ref storage.SeriesRef,
-	l labels.Labels,
-	t int64,
-	v float64,
-) (storage.SeriesRef, error) {
-	callNum := len(f.calls) + 1
-
-	if f.appendErr != nil && (f.failOnCall == 0 || f.failOnCall == callNum) {
-		return 0, f.appendErr
-	}
-
-	f.nextRef++
-
-	f.calls = append(f.calls, appendCall{Ref: ref, Labels: l, T: t, V: v})
-
-	return f.nextRef, nil
-}
-
-var _ metrics.SampleAppender = (*fakeAppender)(nil)
-
-func TestRecordReconcile(t *testing.T) { //nolint:funlen
-	t.Parallel()
-
-	ts := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
-
-	tests := []struct { //nolint:govet
-		name           string
-		module         string
-		duration       time.Duration
-		reconcileErr   error
-		expectedResult string
-		expectedDurVal float64
+//nolint:paralleltest
+func TestRecordPreconditionFailure_AllReasons(t *testing.T) {
+	reasons := []struct {
+		reason metrics.PrerequisiteReason
+		label  string
 	}{
-		{
-			name:           "successful reconcile",
-			module:         "monitoring",
-			duration:       50 * time.Millisecond,
-			reconcileErr:   nil,
-			expectedResult: "success",
-			expectedDurVal: 0.05,
-		},
-		{
-			name:           "failed reconcile",
-			module:         "monitoring",
-			duration:       2 * time.Second,
-			reconcileErr:   assert.AnError,
-			expectedResult: "error",
-			expectedDurVal: 2.0,
-		},
-		{
-			name:           "zero duration reconcile",
-			module:         "trainer",
-			duration:       0,
-			reconcileErr:   nil,
-			expectedResult: "success",
-			expectedDurVal: 0,
-		},
+		{metrics.PrerequisiteMissingDependency, "missing_dependency"},
+		{metrics.PrerequisiteMissingConfiguration, "missing_configuration"},
+		{metrics.PrerequisiteAPIUnavailable, "api_unavailable"},
+		{metrics.PrerequisiteInsufficientRBAC, "insufficient_rbac"},
+		{metrics.PrerequisiteCRDNotFound, "crd_not_found"},
+		{metrics.PrerequisiteComponentNotReady, "component_not_ready"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	for _, r := range reasons {
+		t.Run(r.label, func(t *testing.T) {
+			metrics.PreconditionFailuresTotal.Reset()
 
-			fa := &fakeAppender{}
-			err := metrics.RecordReconcile(fa, tt.module, ts, tt.duration, tt.reconcileErr)
-			require.NoError(t, err)
-			require.Len(t, fa.calls, 2)
+			metrics.RecordPreconditionFailure("test-module", r.reason)
 
-			execCall := fa.calls[0]
-			assert.InDelta(t, 1.0, execCall.V, 0.001)
-			assert.Equal(t, ts.UnixMilli(), execCall.T)
-			assert.Equal(t, metrics.MetricReconcileTotal,
-				execCall.Labels.Get(model.MetricNameLabel))
-			assert.Equal(t, tt.module,
-				execCall.Labels.Get(metrics.LabelModule))
-			assert.Equal(t, tt.expectedResult,
-				execCall.Labels.Get(metrics.LabelResult))
-
-			durCall := fa.calls[1]
-			assert.InDelta(t, tt.expectedDurVal, durCall.V, 0.001)
-			assert.Equal(t, ts.UnixMilli(), durCall.T)
-			assert.Equal(t, metrics.MetricReconcileDurationSeconds,
-				durCall.Labels.Get(model.MetricNameLabel))
-			assert.Equal(t, tt.module,
-				durCall.Labels.Get(metrics.LabelModule))
-			assert.Empty(t, durCall.Labels.Get(metrics.LabelResult),
-				"duration metric should not carry result label")
+			val := testutil.ToFloat64(
+				metrics.PreconditionFailuresTotal.WithLabelValues("test-module", r.label),
+			)
+			assert.InDelta(t, 1.0, val, 0.001)
 		})
 	}
 }
 
-func TestRecordReconcile_ZeroTimestamp(t *testing.T) {
-	t.Parallel()
-
-	fa := &fakeAppender{}
-	err := metrics.RecordReconcile(fa, "monitoring", time.Time{}, 10*time.Millisecond, nil)
-
-	require.ErrorIs(t, err, metrics.ErrTimestampRequired)
-	assert.Empty(t, fa.calls, "no samples should be appended for zero timestamp")
-}
-
-func TestRecordReconcile_AppendError(t *testing.T) {
-	t.Parallel()
-
-	t.Run("first append fails", func(t *testing.T) {
-		t.Parallel()
-
-		fa := &fakeAppender{appendErr: assert.AnError, failOnCall: 1}
-		err := metrics.RecordReconcile(fa, "monitoring", time.Now(), 10*time.Millisecond, nil)
-
-		require.Error(t, err)
-		require.ErrorIs(t, err, assert.AnError)
-		assert.Contains(t, err.Error(), "appending reconcile total metric")
-	})
-
-	t.Run("second append fails", func(t *testing.T) {
-		t.Parallel()
-
-		fa := &fakeAppender{appendErr: assert.AnError, failOnCall: 2}
-		err := metrics.RecordReconcile(fa, "monitoring", time.Now(), 10*time.Millisecond, nil)
-
-		require.Error(t, err)
-		require.ErrorIs(t, err, assert.AnError)
-		assert.Contains(t, err.Error(), "appending reconcile duration metric")
-	})
-}
-
-
-func TestRecordPreconditionFailure(t *testing.T) {
-	t.Parallel()
-
-	ts := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
-
-	fa := &fakeAppender{}
-	err := metrics.RecordPreconditionFailure(fa, "monitoring", metrics.PrerequisiteMissingDependency, ts)
-	require.NoError(t, err)
-	require.Len(t, fa.calls, 1)
-
-	call := fa.calls[0]
-	assert.InDelta(t, 1.0, call.V, 0.001)
-	assert.Equal(t, ts.UnixMilli(), call.T)
-	assert.Equal(t, metrics.MetricPreconditionFailuresTotal,
-		call.Labels.Get(model.MetricNameLabel))
-	assert.Equal(t, "monitoring",
-		call.Labels.Get(metrics.LabelModule))
-	assert.Equal(t, string(metrics.PrerequisiteMissingDependency),
-		call.Labels.Get(metrics.LabelPrerequisite))
-}
-
-func TestRecordPreconditionFailure_ZeroTimestamp(t *testing.T) {
-	t.Parallel()
-
-	fa := &fakeAppender{}
-	err := metrics.RecordPreconditionFailure(fa, "monitoring", metrics.PrerequisiteMissingDependency, time.Time{})
-
-	require.ErrorIs(t, err, metrics.ErrTimestampRequired)
-	assert.Empty(t, fa.calls)
-}
-
-func TestRecordPreconditionFailure_AppendError(t *testing.T) {
-	t.Parallel()
-
-	fa := &fakeAppender{appendErr: assert.AnError}
-	err := metrics.RecordPreconditionFailure(fa, "monitoring", metrics.PrerequisiteMissingDependency, time.Now())
-
-	require.Error(t, err)
-	require.ErrorIs(t, err, assert.AnError)
-	assert.Contains(t, err.Error(), "appending precondition failure metric")
-}
-
-
+//nolint:paralleltest
 func TestRecordBuildInfo(t *testing.T) {
-	t.Parallel()
+	metrics.BuildInfo.Reset()
 
-	ts := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+	metrics.RecordBuildInfo("monitoring", "v0.3.1", "odh-observability")
 
-	fa := &fakeAppender{}
-	err := metrics.RecordBuildInfo(fa, "monitoring", "v0.3.1", "odh-observability", ts)
-	require.NoError(t, err)
-	require.Len(t, fa.calls, 1)
-
-	call := fa.calls[0]
-	assert.InDelta(t, 1.0, call.V, 0.001)
-	assert.Equal(t, ts.UnixMilli(), call.T)
-	assert.Equal(t, metrics.MetricBuildInfo,
-		call.Labels.Get(model.MetricNameLabel))
-	assert.Equal(t, "monitoring",
-		call.Labels.Get(metrics.LabelModule))
-	assert.Equal(t, "v0.3.1",
-		call.Labels.Get(metrics.LabelVersion))
-	assert.Equal(t, "odh-observability",
-		call.Labels.Get(metrics.LabelRepo))
+	val := testutil.ToFloat64(
+		metrics.BuildInfo.WithLabelValues("monitoring", "v0.3.1", "odh-observability"),
+	)
+	assert.InDelta(t, 1.0, val, 0.001)
 }
 
-func TestRecordBuildInfo_ZeroTimestamp(t *testing.T) {
-	t.Parallel()
-
-	fa := &fakeAppender{}
-	err := metrics.RecordBuildInfo(fa, "monitoring", "v0.3.1", "odh-observability", time.Time{})
-
-	require.ErrorIs(t, err, metrics.ErrTimestampRequired)
-	assert.Empty(t, fa.calls)
-}
-
-func TestRecordBuildInfo_AppendError(t *testing.T) {
-	t.Parallel()
-
-	fa := &fakeAppender{appendErr: assert.AnError}
-	err := metrics.RecordBuildInfo(fa, "monitoring", "v0.3.1", "odh-observability", time.Now())
-
-	require.Error(t, err)
-	require.ErrorIs(t, err, assert.AnError)
-	assert.Contains(t, err.Error(), "appending build info metric")
-}
-
-
+//nolint:paralleltest
 func TestRecordComponentRelease(t *testing.T) {
-	t.Parallel()
+	metrics.ComponentRelease.Reset()
 
-	ts := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+	metrics.RecordComponentRelease("monitoring", "v0.4.0", "odh-observability")
 
-	fa := &fakeAppender{}
-	err := metrics.RecordComponentRelease(fa, "monitoring", "v0.4.0", "odh-observability", ts)
-	require.NoError(t, err)
-	require.Len(t, fa.calls, 1)
-
-	call := fa.calls[0]
-	assert.InDelta(t, 1.0, call.V, 0.001)
-	assert.Equal(t, ts.UnixMilli(), call.T)
-	assert.Equal(t, metrics.MetricComponentRelease,
-		call.Labels.Get(model.MetricNameLabel))
-	assert.Equal(t, "monitoring",
-		call.Labels.Get(metrics.LabelModule))
-	assert.Equal(t, "v0.4.0",
-		call.Labels.Get(metrics.LabelVersion))
-	assert.Equal(t, "odh-observability",
-		call.Labels.Get(metrics.LabelRepo))
+	val := testutil.ToFloat64(
+		metrics.ComponentRelease.WithLabelValues("monitoring", "v0.4.0", "odh-observability"),
+	)
+	assert.InDelta(t, 1.0, val, 0.001)
 }
 
-func TestRecordComponentRelease_ZeroTimestamp(t *testing.T) {
-	t.Parallel()
+//nolint:paralleltest
+func TestRecordReconcilePhaseDuration(t *testing.T) {
+	metrics.ReconcilePhaseDurationSeconds.Reset()
 
-	fa := &fakeAppender{}
-	err := metrics.RecordComponentRelease(fa, "monitoring", "v0.4.0", "odh-observability", time.Time{})
+	metrics.RecordReconcilePhaseDuration("dashboard", metrics.PhaseRender, 100*time.Millisecond)
+	metrics.RecordReconcilePhaseDuration("dashboard", metrics.PhaseDeploy, 500*time.Millisecond)
+	metrics.RecordReconcilePhaseDuration("dashboard", metrics.PhaseGC, 50*time.Millisecond)
 
-	require.ErrorIs(t, err, metrics.ErrTimestampRequired)
-	assert.Empty(t, fa.calls)
+	count := testutil.CollectAndCount(metrics.ReconcilePhaseDurationSeconds)
+	assert.Equal(t, 3, count, "should have observations for 3 phases")
 }
 
-func TestRecordComponentRelease_AppendError(t *testing.T) {
-	t.Parallel()
+//nolint:paralleltest
+func TestRecordReconcilePhaseDuration_MultipleObservations(t *testing.T) {
+	metrics.ReconcilePhaseDurationSeconds.Reset()
 
-	fa := &fakeAppender{appendErr: assert.AnError}
-	err := metrics.RecordComponentRelease(fa, "monitoring", "v0.4.0", "odh-observability", time.Now())
+	metrics.RecordReconcilePhaseDuration("dashboard", metrics.PhaseRender, 200*time.Millisecond)
+	metrics.RecordReconcilePhaseDuration("dashboard", metrics.PhaseRender, 300*time.Millisecond)
 
-	require.Error(t, err)
-	require.ErrorIs(t, err, assert.AnError)
-	assert.Contains(t, err.Error(), "appending component release metric")
+	count := testutil.CollectAndCount(metrics.ReconcilePhaseDurationSeconds)
+	assert.Positive(t, count)
+}
+
+//nolint:paralleltest
+func TestSetManagedResources(t *testing.T) {
+	metrics.ManagedResources.Reset()
+
+	metrics.SetManagedResources("dashboard", "apps/v1/Deployment", 5)
+	metrics.SetManagedResources("dashboard", "v1/ConfigMap", 12)
+
+	deployments := testutil.ToFloat64(
+		metrics.ManagedResources.WithLabelValues("dashboard", "apps/v1/Deployment"),
+	)
+	assert.InDelta(t, 5.0, deployments, 0.001)
+
+	configmaps := testutil.ToFloat64(
+		metrics.ManagedResources.WithLabelValues("dashboard", "v1/ConfigMap"),
+	)
+	assert.InDelta(t, 12.0, configmaps, 0.001)
+}
+
+//nolint:paralleltest
+func TestSetManagedResources_Updates(t *testing.T) {
+	metrics.ManagedResources.Reset()
+
+	metrics.SetManagedResources("dashboard", "apps/v1/Deployment", 5)
+	metrics.SetManagedResources("dashboard", "apps/v1/Deployment", 3)
+
+	val := testutil.ToFloat64(
+		metrics.ManagedResources.WithLabelValues("dashboard", "apps/v1/Deployment"),
+	)
+	assert.InDelta(t, 3.0, val, 0.001, "gauge should reflect latest value")
+}
+
+//nolint:paralleltest
+func TestRecordConditionTransition(t *testing.T) {
+	metrics.ConditionTransitionsTotal.Reset()
+
+	metrics.RecordConditionTransition("dashboard", "Ready", metrics.ConditionTrue)
+	metrics.RecordConditionTransition("dashboard", "Ready", metrics.ConditionFalse)
+	metrics.RecordConditionTransition("dashboard", "Ready", metrics.ConditionTrue)
+
+	trueVal := testutil.ToFloat64(
+		metrics.ConditionTransitionsTotal.WithLabelValues("dashboard", "Ready", "True"),
+	)
+	assert.InDelta(t, 2.0, trueVal, 0.001)
+
+	falseVal := testutil.ToFloat64(
+		metrics.ConditionTransitionsTotal.WithLabelValues("dashboard", "Ready", "False"),
+	)
+	assert.InDelta(t, 1.0, falseVal, 0.001)
+}
+
+//nolint:paralleltest
+func TestRecordConditionTransition_AllStatuses(t *testing.T) {
+	statuses := []struct {
+		status metrics.ConditionStatus
+		label  string
+	}{
+		{metrics.ConditionTrue, "True"},
+		{metrics.ConditionFalse, "False"},
+		{metrics.ConditionUnknown, "Unknown"},
+	}
+
+	for _, s := range statuses {
+		t.Run(s.label, func(t *testing.T) {
+			metrics.ConditionTransitionsTotal.Reset()
+
+			metrics.RecordConditionTransition("test-module", "Ready", s.status)
+
+			val := testutil.ToFloat64(
+				metrics.ConditionTransitionsTotal.WithLabelValues("test-module", "Ready", s.label),
+			)
+			assert.InDelta(t, 1.0, val, 0.001)
+		})
+	}
 }

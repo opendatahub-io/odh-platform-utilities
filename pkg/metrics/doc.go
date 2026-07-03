@@ -14,15 +14,14 @@
 // # Custom metrics (defined in this package)
 //
 // These fill the gaps that controller-runtime does not cover:
-//   - [MetricPreconditionFailuresTotal] — tracks when a required operator is missing
-//   - [MetricBuildInfo] — what version of the module is running
-//   - [MetricComponentRelease] — what version was last successfully deployed
+//   - [PreconditionFailuresTotal] — tracks when a required operator is missing
+//   - [BuildInfo] — what version of the module is running
+//   - [ComponentRelease] — what version was last successfully deployed
+//   - [ReconcileTotal] — reconcile count with success/error result label
+//   - [ReconcileDurationSeconds] — duration of the last reconcile
 //
-// # How to use
-//
-// All Record* functions take a [SampleAppender] interface (compatible with
-// prometheus storage.Appender) and write metric samples to it.
-// None of them call Commit — the caller is responsible for that.
+// All metrics are registered with the controller-runtime global registry
+// on package init and are automatically exposed on the metrics endpoint.
 //
 // See [RecordReconcile], [RecordPreconditionFailure], [RecordBuildInfo],
 // and [RecordComponentRelease].
