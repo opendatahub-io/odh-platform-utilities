@@ -8,6 +8,7 @@ require (
 	github.com/k8s-manifest-kit/engine v0.2.1-0.20260302092700-39c16f95d249
 	github.com/k8s-manifest-kit/renderer-helm v0.3.1-0.20260303100010-977618f3f59b
 	github.com/onsi/gomega v1.39.1
+	github.com/operator-framework/api v0.42.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.67.5
 	github.com/prometheus/prometheus v0.312.0
@@ -24,7 +25,6 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.21.0
 	sigs.k8s.io/yaml v1.6.0
 )
-
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
