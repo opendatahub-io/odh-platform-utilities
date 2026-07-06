@@ -20,6 +20,7 @@ const (
 	LabelStatus           = "status"
 )
 
+// PrerequisiteReason is a closed set of reasons for precondition failures.
 type PrerequisiteReason string
 
 const (
@@ -31,6 +32,7 @@ const (
 	PrerequisiteComponentNotReady    PrerequisiteReason = "component_not_ready"
 )
 
+// ReconcilePhase identifies a stage in the reconcile action pipeline.
 type ReconcilePhase string
 
 const (
@@ -39,6 +41,7 @@ const (
 	PhaseGC     ReconcilePhase = "gc"
 )
 
+// ConditionStatus represents the status of a condition (True, False, Unknown).
 type ConditionStatus string
 
 const (
