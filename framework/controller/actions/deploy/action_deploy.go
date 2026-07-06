@@ -164,8 +164,9 @@ func WithSortFn(fn SortFn) ActionOpts {
 	}
 }
 
-// WithApplyOrder is a convenience option that sorts resources into
-// dependency order (CRDs first, webhooks last) before deploying.
+// WithApplyOrder explicitly sets SortByApplyOrder as the sort function.
+// This is now the default for NewAction, so callers only need this if
+// the default was previously overridden by WithSortFn(nil).
 func WithApplyOrder() ActionOpts {
 	return WithSortFn(resources.SortByApplyOrder)
 }
@@ -617,6 +618,7 @@ func NewAction(opts ...ActionOpts) actions.Fn {
 		partOfLabelDefault:    DefaultPartOfLabelValue,
 		annotationPrefix:      DefaultAnnotationPrefix,
 		managedByAnnotation:   DefaultManagedByAnnotation,
+		sortFn:                resources.SortByApplyOrder,
 		applyCustomizers: map[schema.GroupVersionKind]CustomizerFn{
 			gvk.Deployment:             CustomizerFnApplyDeployments,
 			gvk.ClusterRole:            CustomizerFnApplyClusterRoles,
