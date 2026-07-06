@@ -46,3 +46,8 @@ const (
 	ConditionFalse   ConditionStatus = "False"
 	ConditionUnknown ConditionStatus = "Unknown"
 )
+
+// Note: the condition_type label is bounded by common.ConditionType, a typed
+// string defined in api/common with a fixed set of values (Ready,
+// ProvisioningSucceeded, Degraded). RecordConditionTransition enforces this
+// at compile time by accepting common.ConditionType rather than a raw string.
