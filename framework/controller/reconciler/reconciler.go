@@ -135,6 +135,16 @@ func WithSkipConditionCleanup() ReconcilerOpt {
 	}
 }
 
+// WithDefaultRequeueAfter sets a fallback requeue interval used when reconciliation
+// succeeds and no action requested a specific requeue via errors.RequeueAfterError.
+// Useful for controllers that must periodically poll state not backed by a
+// Kubernetes watch.
+func WithDefaultRequeueAfter(d time.Duration) ReconcilerOpt {
+	return func(reconciler *Reconciler) {
+		reconciler.defaultRequeueAfter = d
+	}
+}
+
 // WithDynamicOwnership enables dynamic ownership mode for the reconciler.
 func WithDynamicOwnership(opts ...DynamicOwnershipOption) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
@@ -181,6 +191,7 @@ type Reconciler struct {
 	excludeFromDynamicOwnership map[schema.GroupVersionKind]struct{}
 	skipConditionCleanup        bool
 	skipStatusConditionsFn      func() bool
+	defaultRequeueAfter         time.Duration
 }
 
 // NewReconciler creates a new reconciler for the given type.
@@ -534,6 +545,10 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 		)
 
 		return 0, fmt.Errorf("provisioning failed: %w", provisionErr)
+	}
+
+	if requeueAfter == 0 {
+		requeueAfter = r.defaultRequeueAfter
 	}
 
 	return requeueAfter, nil
