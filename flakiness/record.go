@@ -3,10 +3,13 @@ package flakiness
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 )
+
+const maxLabelLen = 64
 
 // ErrTimestampRequired is returned by [RecordTestResult] when the
 // [TestResult.Timestamp] is zero.
@@ -22,14 +25,28 @@ func RecordTestResult(a SampleAppender, r TestResult) error {
 
 	ts := r.Timestamp.UnixMilli()
 
-	executionLabels := labels.FromStrings(
+	execLabelPairs := []string{
 		model.MetricNameLabel, MetricTestExecutionTotal,
 		LabelTestName, r.Name,
 		LabelSuite, r.Suite,
 		LabelJob, r.Job,
 		LabelBuildID, r.BuildID,
 		LabelResult, string(r.Result),
-	)
+	}
+
+	if r.FailureCategory != "" {
+		execLabelPairs = append(execLabelPairs, LabelFailureCategory, truncateLabel(r.FailureCategory))
+	}
+
+	if r.FailureSubcategory != "" {
+		execLabelPairs = append(execLabelPairs, LabelFailureSubcategory, truncateLabel(r.FailureSubcategory))
+	}
+
+	if r.FailureConfidence != "" {
+		execLabelPairs = append(execLabelPairs, LabelFailureConfidence, bucketConfidence(r.FailureConfidence))
+	}
+
+	executionLabels := labels.FromStrings(execLabelPairs...)
 
 	_, err := a.Append(0, executionLabels, ts, 1)
 	if err != nil {
@@ -50,4 +67,28 @@ func RecordTestResult(a SampleAppender, r TestResult) error {
 	}
 
 	return nil
+}
+
+func truncateLabel(v string) string {
+	if len(v) <= maxLabelLen {
+		return v
+	}
+
+	return v[:maxLabelLen]
+}
+
+func bucketConfidence(v string) string {
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return "unknown"
+	}
+
+	switch {
+	case f >= 0.9:
+		return "high"
+	case f >= 0.5:
+		return "medium"
+	default:
+		return "low"
+	}
 }

@@ -3,10 +3,13 @@
 This directory contains runnable example programs demonstrating how to use
 the utilities provided by `odh-platform-utilities`.
 
-Each subdirectory is a self-contained Go program that can be run with:
+Each subdirectory is a self-contained Go module. Run with:
 
 ```bash
-go run ./examples/<example-name>/
+cd examples/<example-name>
+go run .
 ```
 
-Examples will be added as utility packages are implemented.
+| Example | Description |
+|---------|-------------|
+| `flakiness-scraper` | Scrapes JUnit XML artifacts from a public OpenShift CI GCS bucket and queries the ingested metrics. |

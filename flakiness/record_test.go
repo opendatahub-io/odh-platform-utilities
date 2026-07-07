@@ -145,6 +145,68 @@ func TestRecordTestResult(t *testing.T) { //nolint:funlen // Table-driven test w
 	}
 }
 
+func TestRecordTestResult_FailureClassification(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+
+	t.Run("includes failure labels when set", func(t *testing.T) {
+		t.Parallel()
+
+		fa := &fakeAppender{}
+		err := flakiness.RecordTestResult(fa, flakiness.TestResult{
+			Name:               "TestModelServing/inference",
+			Suite:              "e2e",
+			Job:                "periodic-ci",
+			BuildID:            "build-100",
+			Result:             flakiness.OutcomeFail,
+			Duration:           10 * time.Second,
+			Timestamp:          ts,
+			FailureCategory:    "infrastructure",
+			FailureSubcategory: "cluster_timeout",
+			FailureConfidence:  "0.95",
+		})
+
+		require.NoError(t, err)
+		require.Len(t, fa.calls, 2)
+
+		execCall := fa.calls[0]
+		assert.Equal(t, "infrastructure",
+			execCall.Labels.Get(flakiness.LabelFailureCategory))
+		assert.Equal(t, "cluster_timeout",
+			execCall.Labels.Get(flakiness.LabelFailureSubcategory))
+		assert.Equal(t, "high",
+			execCall.Labels.Get(flakiness.LabelFailureConfidence))
+
+		durCall := fa.calls[1]
+		assert.Empty(t, durCall.Labels.Get(flakiness.LabelFailureCategory),
+			"duration metric should not carry failure labels")
+	})
+
+	t.Run("omits failure labels when empty", func(t *testing.T) {
+		t.Parallel()
+
+		fa := &fakeAppender{}
+		err := flakiness.RecordTestResult(fa, flakiness.TestResult{
+			Name:      "TestDashboard/login",
+			Suite:     "e2e",
+			Job:       "presubmit",
+			BuildID:   "build-200",
+			Result:    flakiness.OutcomePass,
+			Duration:  2 * time.Second,
+			Timestamp: ts,
+		})
+
+		require.NoError(t, err)
+		require.Len(t, fa.calls, 2)
+
+		execCall := fa.calls[0]
+		assert.Empty(t, execCall.Labels.Get(flakiness.LabelFailureCategory))
+		assert.Empty(t, execCall.Labels.Get(flakiness.LabelFailureSubcategory))
+		assert.Empty(t, execCall.Labels.Get(flakiness.LabelFailureConfidence))
+	})
+}
+
 func TestRecordTestResult_ZeroTimestamp(t *testing.T) {
 	t.Parallel()
 

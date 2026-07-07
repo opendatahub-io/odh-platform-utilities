@@ -14,6 +14,10 @@ const (
 	LabelJob      = "job"
 	LabelBuildID  = "build_id"
 	LabelResult   = "result"
+
+	LabelFailureCategory    = "failure_category"
+	LabelFailureSubcategory = "failure_subcategory"
+	LabelFailureConfidence  = "failure_confidence"
 )
 
 type TestOutcome string
@@ -27,11 +31,14 @@ const (
 
 // TestResult - use [RecordTestResult] to translate results into metric samples.
 type TestResult struct {
-	Timestamp time.Time
-	Name      string
-	Suite     string
-	Job       string
-	BuildID   string
-	Result    TestOutcome
-	Duration  time.Duration
+	Timestamp          time.Time
+	Name               string
+	Suite              string
+	Job                string
+	BuildID            string
+	Result             TestOutcome
+	Duration           time.Duration
+	FailureCategory    string
+	FailureSubcategory string
+	FailureConfidence  string
 }
