@@ -108,6 +108,7 @@ type ReconcilerBuilder[T api.PlatformObject] struct {
 	mgr                      ctrl.Manager
 	input                    forInput
 	watches                  []watchInput
+	rawSources               []source.Source
 	predicates               []predicate.Predicate
 	instanceName             string
 	actions                  []actions.Fn
@@ -369,6 +370,14 @@ func (b *ReconcilerBuilder[T]) Owns(object client.Object, opts ...WatchOpts) *Re
 	return b
 }
 
+// WatchesRawSource registers a raw controller-runtime source.Source (for example a
+// channel-backed source.Channel) so the controller can be triggered by non-Kubernetes
+// events. The handler and predicates must already be configured on the source itself.
+func (b *ReconcilerBuilder[T]) WatchesRawSource(src source.Source) *ReconcilerBuilder[T] {
+	b.rawSources = append(b.rawSources, src)
+	return b
+}
+
 func (b *ReconcilerBuilder[T]) WithEventFilter(p predicate.Predicate) *ReconcilerBuilder[T] {
 	b.predicates = append(b.predicates, p)
 	return b
@@ -462,6 +471,10 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 			b.watches[i].eventHandler,
 			builder.WithPredicates(b.watches[i].predicates...),
 		)
+	}
+
+	for i := range b.rawSources {
+		c = c.WatchesRawSource(b.rawSources[i])
 	}
 
 	for i := range b.predicates {
