@@ -112,3 +112,29 @@ type Release struct {
 	Name    Platform                `json:"name,omitempty"`
 	Version version.OperatorVersion `json:"version,omitempty"`
 }
+
+// ComponentRelease represents the detailed status of a component release.
+// +kubebuilder:object:generate=true
+type ComponentRelease struct {
+	// +required
+	// +kubebuilder:validation:Required
+	Name    string `json:"name"              yaml:"name"`
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+	RepoURL string `json:"repoUrl,omitempty" yaml:"repoUrl,omitempty"`
+}
+
+// ComponentReleaseStatus tracks the list of component releases, including their name, version, and repository URL.
+// +kubebuilder:object:generate=true
+type ComponentReleaseStatus struct {
+	// +patchMergeKey=name
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=name
+	Releases []ComponentRelease `json:"releases,omitempty" yaml:"releases,omitempty"`
+}
+
+// WithReleases is implemented by resources that track per-component release metadata.
+type WithReleases interface {
+	GetReleaseStatus() *[]ComponentRelease
+	SetReleaseStatus(status []ComponentRelease)
+}
