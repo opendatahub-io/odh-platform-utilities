@@ -95,7 +95,7 @@ func ParseJUnit(data []byte) ([]JUnitTestSuite, error) {
 // ConvertTestResults turns parsed JUnit suites into [TestResult] values.
 // The job and buildID must be supplied by the caller (not present in the XML).
 func ConvertTestResults(suites []JUnitTestSuite, job, buildID string) []TestResult {
-	var results []TestResult
+	results := make([]TestResult, 0, len(suites))
 
 	for i := range suites {
 		suite := &suites[i]
