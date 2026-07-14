@@ -15,6 +15,9 @@ const (
 	LabelBuildID  = "build_id"
 	LabelResult   = "result"
 
+	LabelCommitSHA = "commit_sha"
+	LabelPRNumber  = "pr_number"
+
 	LabelFailureCategory    = "failure_category"
 	LabelFailureSubcategory = "failure_subcategory"
 	LabelFailureConfidence  = "failure_confidence"
@@ -38,6 +41,8 @@ type TestResult struct {
 	BuildID            string
 	Result             TestOutcome
 	Duration           time.Duration
+	CommitSHA          string
+	PRNumber           string
 	FailureCategory    string
 	FailureSubcategory string
 	FailureConfidence  string

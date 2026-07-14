@@ -34,6 +34,14 @@ func RecordTestResult(a SampleAppender, r TestResult) error {
 		LabelResult, string(r.Result),
 	}
 
+	if r.CommitSHA != "" {
+		execLabelPairs = append(execLabelPairs, LabelCommitSHA, r.CommitSHA)
+	}
+
+	if r.PRNumber != "" {
+		execLabelPairs = append(execLabelPairs, LabelPRNumber, r.PRNumber)
+	}
+
 	if r.FailureCategory != "" {
 		execLabelPairs = append(execLabelPairs, LabelFailureCategory, truncateLabel(r.FailureCategory))
 	}
