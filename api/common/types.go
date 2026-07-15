@@ -199,6 +199,12 @@ type ComponentRelease struct {
 	RepoURL string `json:"repoUrl,omitempty"`
 }
 
+// ReleasePlatform is the well-known release entry name used for the platform
+// version handshake. Module controllers write the platform version under
+// this name in status.releases; the orchestrator reads it to confirm that
+// the module has finished processing an upgrade.
+const ReleasePlatform = "platform"
+
 // ComponentReleaseStatus holds the list of component releases deployed by a
 // module. The orchestrator reads this to detect module versions for upgrade
 // mode.
@@ -212,6 +218,50 @@ type ComponentReleaseStatus struct {
 	// +patchMergeKey=name
 	// +patchStrategy=merge
 	Releases []ComponentRelease `json:"releases,omitempty"`
+}
+
+// GetRelease returns the release entry with the given name, or nil if not
+// found.
+func (s *ComponentReleaseStatus) GetRelease(name string) *ComponentRelease {
+	for i := range s.Releases {
+		if s.Releases[i].Name == name {
+			return &s.Releases[i]
+		}
+	}
+
+	return nil
+}
+
+// SetRelease upserts a release entry by name. If an entry with the same name
+// already exists its version and repoUrl are updated; otherwise a new entry
+// is appended.
+func (s *ComponentReleaseStatus) SetRelease(r ComponentRelease) {
+	for i := range s.Releases {
+		if s.Releases[i].Name == r.Name {
+			s.Releases[i] = r
+			return
+		}
+	}
+
+	s.Releases = append(s.Releases, r)
+}
+
+// GetPlatformRelease returns the platform version the module has reconciled
+// against, or empty string if the handshake has not been completed yet.
+func (s *ComponentReleaseStatus) GetPlatformRelease() string {
+	r := s.GetRelease(ReleasePlatform)
+	if r == nil {
+		return ""
+	}
+
+	return r.Version
+}
+
+// SetPlatformRelease records the platform version the module has successfully
+// reconciled against. This is the module side of the platform version
+// handshake.
+func (s *ComponentReleaseStatus) SetPlatformRelease(version string) {
+	s.SetRelease(ComponentRelease{Name: ReleasePlatform, Version: version})
 }
 
 // --- Accessor Interfaces ---
