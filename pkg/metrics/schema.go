@@ -50,7 +50,7 @@ const (
 	ConditionUnknown ConditionStatus = "Unknown"
 )
 
-// Note: the condition_type label is bounded by common.ConditionType, a typed
-// string defined in api/common with a fixed set of values (Ready,
-// ProvisioningSucceeded, Degraded). RecordConditionTransition enforces this
-// at compile time by accepting common.ConditionType rather than a raw string.
+// Note: the condition_type label is practically limited to the small set of
+// condition types defined by modules (via common.ConditionType).
+// RecordConditionTransition accepts common.ConditionType rather than a raw
+// string to encourage use of those known types.

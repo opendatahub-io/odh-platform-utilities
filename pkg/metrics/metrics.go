@@ -31,6 +31,8 @@ var (
 		[]string{LabelModule, LabelVersion, LabelRepo},
 	)
 
+	// ReconcilePhaseDurationSeconds complements controller_runtime_reconcile_time_seconds
+	// (total reconcile duration) by measuring per-phase time (render/deploy/gc).
 	ReconcilePhaseDurationSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    MetricReconcilePhaseDurationSeconds,

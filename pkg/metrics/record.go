@@ -36,7 +36,9 @@ func RecordComponentRelease(
 	ComponentRelease.WithLabelValues(module, version, repo).Set(1)
 }
 
-// RecordReconcilePhaseDuration observes the duration of a reconcile action phase.
+// RecordReconcilePhaseDuration observes the duration of a reconcile action
+// phase (render/deploy/gc). Complements controller_runtime_reconcile_time_seconds,
+// which measures total reconcile duration rather than per-phase time.
 func RecordReconcilePhaseDuration(
 	module string,
 	phase ReconcilePhase,

@@ -29,6 +29,11 @@
 // [ReconcilePhase], [ConditionStatus]) or the platform contract type
 // common.ConditionType to bound cardinality.
 //
-// For built-in controller-runtime metrics see:
+// # Relationship to controller-runtime metrics
+//
+// [MetricReconcilePhaseDurationSeconds] complements, and does not duplicate,
+// the built-in controller-runtime metric controller_runtime_reconcile_time_seconds:
+// the former measures per-phase module action time (render/deploy/gc), while
+// the latter measures total reconcile duration. For other built-in metrics see:
 // https://book.kubebuilder.io/reference/metrics-reference.html
 package metrics
