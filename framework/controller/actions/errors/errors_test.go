@@ -13,6 +13,8 @@ import (
 )
 
 func TestNewStopError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	se := odherrors.NewStopError("something went %s", "wrong")
@@ -22,6 +24,8 @@ func TestNewStopError(t *testing.T) {
 }
 
 func TestNewStopErrorW(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	cause := stderrors.New("root cause")
@@ -32,27 +36,9 @@ func TestNewStopErrorW(t *testing.T) {
 	g.Expect(errors.Is(se, cause)).To(BeTrue())
 }
 
-func TestNewStopErrorWithRequeueAfter(t *testing.T) {
-	g := NewWithT(t)
-
-	se := odherrors.NewStopErrorWithRequeueAfter(30*time.Second, "waiting for %s", "configmap")
-
-	g.Expect(se.Error()).To(Equal("waiting for configmap"))
-	g.Expect(se.RequeueAfter()).To(Equal(30 * time.Second))
-}
-
-func TestNewStopErrorWithRequeueAfterW(t *testing.T) {
-	g := NewWithT(t)
-
-	cause := stderrors.New("dependency missing")
-	se := odherrors.NewStopErrorWithRequeueAfterW(1*time.Minute, cause)
-
-	g.Expect(se.Error()).To(Equal("dependency missing"))
-	g.Expect(se.RequeueAfter()).To(Equal(1 * time.Minute))
-	g.Expect(errors.Is(se, cause)).To(BeTrue())
-}
-
 func TestStopErrorSatisfiesErrorInterface(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var err error = odherrors.NewStopError("test")
@@ -62,6 +48,8 @@ func TestStopErrorSatisfiesErrorInterface(t *testing.T) {
 }
 
 func TestStopErrorAsFromWrappedChain(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	se := odherrors.NewStopError("inner stop")
@@ -74,13 +62,39 @@ func TestStopErrorAsFromWrappedChain(t *testing.T) {
 }
 
 func TestStopErrorWithRequeueAfterAsFromWrappedChain(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
-	se := odherrors.NewStopErrorWithRequeueAfter(45*time.Second, "waiting")
+	se := odherrors.NewStopError("waiting").WithRequeueAfter(45 * time.Second)
 	wrapped := fmt.Errorf("provisioning paused: %w", se)
 
 	var extracted odherrors.StopError
 	g.Expect(errors.As(wrapped, &extracted)).To(BeTrue())
 	g.Expect(extracted.Error()).To(Equal("waiting"))
 	g.Expect(extracted.RequeueAfter()).To(Equal(45 * time.Second))
+}
+
+func TestStopErrorWithRequeueAfter(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	se := odherrors.NewStopError("waiting for %s", "dependency").WithRequeueAfter(30 * time.Second)
+
+	g.Expect(se.Error()).To(Equal("waiting for dependency"))
+	g.Expect(se.RequeueAfter()).To(Equal(30 * time.Second))
+}
+
+func TestStopErrorWWithRequeueAfter(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	cause := stderrors.New("dependency missing")
+	se := odherrors.NewStopErrorW(cause).WithRequeueAfter(1 * time.Minute)
+
+	g.Expect(se.Error()).To(Equal("dependency missing"))
+	g.Expect(se.RequeueAfter()).To(Equal(1 * time.Minute))
+	g.Expect(errors.Is(se, cause)).To(BeTrue())
 }

@@ -145,7 +145,7 @@ func TestApply(t *testing.T) { //nolint:funlen
 		},
 		{
 			name:             "StopError with requeueAfter emits ProvisioningPaused normal event",
-			actionErr:        odherrors.NewStopErrorWithRequeueAfter(30*time.Second, "waiting for configmap"),
+			actionErr:        odherrors.NewStopError("waiting for configmap").WithRequeueAfter(30 * time.Second),
 			wantErr:          "provisioning paused",
 			wantStopError:    true,
 			wantRequeueAfter: 30 * time.Second,
@@ -206,7 +206,7 @@ func TestReconcile(t *testing.T) {
 	}{
 		{
 			name:             "StopError with requeueAfter returns RequeueAfter result, no error",
-			actionErr:        odherrors.NewStopErrorWithRequeueAfter(45*time.Second, "dependency not ready"),
+			actionErr:        odherrors.NewStopError("dependency not ready").WithRequeueAfter(45 * time.Second),
 			wantRequeueAfter: 45 * time.Second,
 		},
 		{

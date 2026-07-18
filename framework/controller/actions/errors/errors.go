@@ -10,6 +10,16 @@ type StopError struct {
 	requeueAfter time.Duration
 }
 
+func NewStopErrorW(reason error) StopError {
+	return StopError{reason: reason}
+}
+
+func NewStopError(format string, args ...any) StopError {
+	return StopError{
+		reason: fmt.Errorf(format, args...),
+	}
+}
+
 func (e StopError) Error() string {
 	return e.reason.Error()
 }
@@ -22,23 +32,8 @@ func (e StopError) RequeueAfter() time.Duration {
 	return e.requeueAfter
 }
 
-func NewStopErrorW(reason error) StopError {
-	return StopError{reason: reason}
-}
-
-func NewStopError(format string, args ...any) StopError {
-	return StopError{
-		reason: fmt.Errorf(format, args...),
-	}
-}
-
-func NewStopErrorWithRequeueAfterW(requeueAfter time.Duration, reason error) StopError {
-	return StopError{reason: reason, requeueAfter: requeueAfter}
-}
-
-func NewStopErrorWithRequeueAfter(requeueAfter time.Duration, format string, args ...any) StopError {
-	return StopError{
-		reason:       fmt.Errorf(format, args...),
-		requeueAfter: requeueAfter,
-	}
+// WithRequeueAfter returns a copy of StopError configured with a delayed requeue.
+func (e StopError) WithRequeueAfter(value time.Duration) StopError {
+	e.requeueAfter = value
+	return e
 }
