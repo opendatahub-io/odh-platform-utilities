@@ -120,9 +120,17 @@ framework/
                                 - Status SSA write
                                 - Pre-apply hooks
                                 - Dynamic ownership support
+                                - Default requeue interval for polling
+                                  non-Kubernetes state
                                 Options: WithRelease, WithFinalizerName,
                                 WithConditionsManagerFactory, WithPhaseNames,
-                                WithPreApplyFn, WithDynamicOwnership, etc.
+                                WithPreApplyFn, WithDynamicOwnership,
+                                WithDefaultRequeueAfter, etc.
+                                ReconcilerBuilder also exposes
+                                WatchesRawSource to register a raw
+                                controller-runtime source.Source (e.g. a
+                                channel-backed source.Channel) for triggering
+                                reconciles from non-Kubernetes events.
     actions/                    Action function type (Fn) and Getter[T].
       deploy/                   Resource deployment via SSA or patch:
                                 - Deploy cache (fingerprint-based skip)
