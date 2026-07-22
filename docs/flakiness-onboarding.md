@@ -34,10 +34,13 @@ quarantine:
     - "TestSmoke/.*"     # tests that should never be quarantined
 
 jira:
+  api_url: https://redhat.atlassian.net
+  user_email: bot@redhat.com       # email of the account that owns the token
   project: RHOAIENG
+  issue_type: Bug                  # optional, defaults to "Bug"
   component: KServe
   labels: [flaky-test, kserve]
-  token_env: QUARANTINE_JIRA_API_TOKEN
+  token_env: QUARANTINE_JIRA_API_TOKEN  # name of the env var holding the token
 ```
 
 Find your GCS job prefixes by browsing
@@ -60,6 +63,11 @@ post:
           secretKeyRef:
             name: quarantine-jira-token
             key: token
+      - name: JIRA_USER_EMAIL
+        valueFrom:
+          secretKeyRef:
+            name: quarantine-jira-token
+            key: email
 ```
 
 ## Step 3: Commit an initial quarantine file
@@ -98,7 +106,10 @@ Any scalar config field can be overridden via environment variables in CI:
 | `FLAKINESS_MIN_RUNS` | `analysis.min_runs` |
 | `FLAKINESS_QUARANTINE_CONFIG_PATH` | `quarantine.config_path` |
 | `FLAKINESS_AUTO_QUARANTINE` | `quarantine.auto_quarantine` |
+| `FLAKINESS_JIRA_API_URL` | `jira.api_url` |
+| `FLAKINESS_JIRA_USER_EMAIL` | `jira.user_email` |
 | `FLAKINESS_JIRA_PROJECT` | `jira.project` |
+| `FLAKINESS_JIRA_ISSUE_TYPE` | `jira.issue_type` |
 | `FLAKINESS_JIRA_COMPONENT` | `jira.component` |
 | `FLAKINESS_JIRA_TOKEN_ENV` | `jira.token_env` |
 

@@ -1,0 +1,69 @@
+name: Check Jira Token Expiry
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # every Monday at 09:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: check-jira-token-expiry
+  cancel-in-progress: false
+
+jobs:
+  check-token:
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate Jira token
+        id: validate
+        env:
+          QUARANTINE_JIRA_API_TOKEN: ${{ secrets.QUARANTINE_JIRA_API_TOKEN }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_BASE_URL: https://redhat.atlassian.net
+        run: bash .github/scripts/validate-jira-token.sh
+
+      - name: Open rotation reminder issue
+        if: steps.validate.outputs.status == 'expired' || steps.validate.outputs.status == 'missing'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |2
+          set -euo pipefail
+
+          if ! existing=$(gh issue list \
+            --label "jira-token-rotation" \
+            --state open \
+            --json number \
+            --jq '.[0].number'); then
+            echo "gh issue list failed — skipping issue creation"
+            exit 1
+          fi
+
+          if [[ -n "${existing}" ]]; then
+            echo "Rotation issue #${existing} already open — skipping"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "Action required: rotate QUARANTINE_JIRA_API_TOKEN" \
+            --label "jira-token-rotation" \
+            --body "$(cat <<'EOF'
+  One or more Jira credentials used by the flakiness quarantine system are
+  expired or missing. Without valid credentials, the Jira client will not
+  create Bug tickets for newly quarantined tests.
+
+  **Required secrets:**
+  - \`QUARANTINE_JIRA_API_TOKEN\` — Jira API token for authentication
+  - \`JIRA_USER_EMAIL\` — email address paired with the API token
+
+  **To fix:**
+  1. Generate a new token at https://id.atlassian.com/manage-profile/security/api-tokens
+  2. Update both \`QUARANTINE_JIRA_API_TOKEN\` and \`JIRA_USER_EMAIL\` secrets in this repository's settings
+  3. Close this issue
+
+  Contact the repo owners if you do not have permission to rotate the secrets.
+  EOF
+  )"
