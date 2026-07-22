@@ -215,6 +215,29 @@ func filterJUnitFiles(objects []string) []string {
 	return result
 }
 
+// ScrapeAll scrapes JUnit XML artifacts from multiple GCS job prefixes
+// and aggregates the results. Each prefix is scraped independently;
+// individual prefix failures are collected in [ScrapeResult.Errors]
+// rather than aborting.
+func (s *Scraper) ScrapeAll(ctx context.Context, a SampleAppender, bucket string, prefixes []string) (*ScrapeResult, error) {
+	combined := &ScrapeResult{}
+
+	for _, prefix := range prefixes {
+		result, err := s.Scrape(ctx, a, bucket, prefix)
+		if err != nil {
+			combined.Errors = append(combined.Errors, fmt.Errorf("prefix %s: %w", prefix, err))
+
+			continue
+		}
+
+		combined.Artifacts += result.Artifacts
+		combined.TestsRecorded += result.TestsRecorded
+		combined.Errors = append(combined.Errors, result.Errors...)
+	}
+
+	return combined, nil
+}
+
 func isJUnitFile(name string) bool {
 	lower := strings.ToLower(name)
 
