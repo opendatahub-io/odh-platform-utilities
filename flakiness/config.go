@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -50,10 +51,14 @@ type QuarantineConfig struct {
 
 // JiraConfig specifies how quarantine Jira tickets are filed.
 type JiraConfig struct {
-	Project   string   `yaml:"project"`
-	Component string   `yaml:"component"`
-	Labels    []string `yaml:"labels"`
-	TokenEnv  string   `yaml:"token_env"` //nolint:tagliatelle // snake_case is the YAML config convention
+	APIURL             string        `yaml:"api_url"`    //nolint:tagliatelle // snake_case is the YAML config convention
+	UserEmail          string        `yaml:"user_email"` //nolint:tagliatelle // snake_case is the YAML config convention
+	Project            string        `yaml:"project"`
+	IssueType          string        `yaml:"issue_type"` //nolint:tagliatelle // snake_case is the YAML config convention
+	Component          string        `yaml:"component"`
+	Labels             []string      `yaml:"labels"`
+	TokenEnv           string        `yaml:"token_env"`           //nolint:tagliatelle // snake_case is the YAML config convention
+	QuarantineDuration time.Duration `yaml:"quarantine_duration"` //nolint:tagliatelle // snake_case is the YAML config convention
 }
 
 // LoadConfig reads a YAML configuration file and returns a validated
@@ -137,6 +142,10 @@ func (c *Config) applyDefaults() {
 	if c.Analysis.MinRuns == 0 {
 		c.Analysis.MinRuns = DefaultMinRunsConfig
 	}
+
+	if c.Jira.IssueType == "" {
+		c.Jira.IssueType = "Bug"
+	}
 }
 
 // applyEnvOverrides overrides scalar config fields from FLAKINESS_*
@@ -188,8 +197,20 @@ func (c *Config) applyEnvOverrides() error {
 		c.Quarantine.AutoQuarantine = strings.EqualFold(v, "true")
 	}
 
+	if v := os.Getenv("FLAKINESS_JIRA_API_URL"); v != "" {
+		c.Jira.APIURL = v
+	}
+
+	if v := os.Getenv("FLAKINESS_JIRA_USER_EMAIL"); v != "" {
+		c.Jira.UserEmail = v
+	}
+
 	if v := os.Getenv("FLAKINESS_JIRA_PROJECT"); v != "" {
 		c.Jira.Project = v
+	}
+
+	if v := os.Getenv("FLAKINESS_JIRA_ISSUE_TYPE"); v != "" {
+		c.Jira.IssueType = v
 	}
 
 	if v := os.Getenv("FLAKINESS_JIRA_COMPONENT"); v != "" {
