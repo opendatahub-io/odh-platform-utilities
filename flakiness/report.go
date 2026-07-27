@@ -42,6 +42,7 @@ type QuarantineEntry struct {
 	RegressionPR   string         `json:"regressionPr,omitempty"`
 	LastSeen       time.Time      `json:"lastSeen"`
 	LastFailed     time.Time      `json:"lastFailed,omitempty"`
+	JiraKey        string         `json:"jiraKey,omitempty"`
 }
 
 // Report holds analysis results for test executions in a time window.

@@ -34,7 +34,10 @@ quarantine:
     - "TestCritical/.*"
 
 jira:
+  api_url: https://redhat.atlassian.net
+  user_email: bot@example.com
   project: RHOAIENG
+  issue_type: Bug
   component: KServe
   labels: [flaky-test, kserve]
   token_env: QUARANTINE_JIRA_API_TOKEN
@@ -70,7 +73,10 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, "hack/quarantine.json", cfg.Quarantine.ConfigPath)
 	assert.True(t, cfg.Quarantine.AutoQuarantine)
 	assert.Equal(t, []string{"TestSmoke/.*", "TestCritical/.*"}, cfg.Quarantine.ExcludePatterns)
+	assert.Equal(t, "https://redhat.atlassian.net", cfg.Jira.APIURL)
+	assert.Equal(t, "bot@example.com", cfg.Jira.UserEmail)
 	assert.Equal(t, "RHOAIENG", cfg.Jira.Project)
+	assert.Equal(t, "Bug", cfg.Jira.IssueType)
 	assert.Equal(t, "KServe", cfg.Jira.Component)
 	assert.Equal(t, []string{"flaky-test", "kserve"}, cfg.Jira.Labels)
 	assert.Equal(t, "QUARANTINE_JIRA_API_TOKEN", cfg.Jira.TokenEnv)
@@ -93,6 +99,7 @@ gcs:
 	assert.InDelta(t, flakiness.DefaultThreshold, cfg.Analysis.Threshold, 0.001)
 	assert.Equal(t, flakiness.DefaultWindowDays, cfg.Analysis.WindowDays)
 	assert.Equal(t, flakiness.DefaultMinRunsConfig, cfg.Analysis.MinRuns)
+	assert.Equal(t, "Bug", cfg.Jira.IssueType, "IssueType should default to Bug")
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
@@ -301,7 +308,10 @@ jira:
 	t.Setenv("FLAKINESS_MIN_RUNS", "20")
 	t.Setenv("FLAKINESS_QUARANTINE_CONFIG_PATH", "overridden/path.json")
 	t.Setenv("FLAKINESS_AUTO_QUARANTINE", "true")
+	t.Setenv("FLAKINESS_JIRA_API_URL", "https://override.atlassian.net")
+	t.Setenv("FLAKINESS_JIRA_USER_EMAIL", "override@example.com")
 	t.Setenv("FLAKINESS_JIRA_PROJECT", "OVERRIDE")
+	t.Setenv("FLAKINESS_JIRA_ISSUE_TYPE", "Story")
 	t.Setenv("FLAKINESS_JIRA_COMPONENT", "Overridden")
 	t.Setenv("FLAKINESS_JIRA_TOKEN_ENV", "OVERRIDE_TOKEN")
 
@@ -315,7 +325,10 @@ jira:
 	assert.Equal(t, 20, cfg.Analysis.MinRuns)
 	assert.Equal(t, "overridden/path.json", cfg.Quarantine.ConfigPath)
 	assert.True(t, cfg.Quarantine.AutoQuarantine)
+	assert.Equal(t, "https://override.atlassian.net", cfg.Jira.APIURL)
+	assert.Equal(t, "override@example.com", cfg.Jira.UserEmail)
 	assert.Equal(t, "OVERRIDE", cfg.Jira.Project)
+	assert.Equal(t, "Story", cfg.Jira.IssueType)
 	assert.Equal(t, "Overridden", cfg.Jira.Component)
 	assert.Equal(t, "OVERRIDE_TOKEN", cfg.Jira.TokenEnv)
 }
