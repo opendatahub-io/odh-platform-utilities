@@ -223,11 +223,6 @@ func WithOwnerAnnotations(owner client.Object) MetaOptions {
 	}
 }
 
-// Deprecated: WithDynamicOwner was renamed to [WithOwnerAnnotations]. Use [WithOwnerAnnotations] instead.
-func WithDynamicOwner(owner client.Object) MetaOptions {
-	return WithOwnerAnnotations(owner)
-}
-
 // InNamespace returns a MetaOptions that sets the object's namespace.
 func InNamespace(ns string) MetaOptions {
 	return func(obj client.Object) error {

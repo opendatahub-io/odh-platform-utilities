@@ -245,23 +245,3 @@ func TestEnqueueByOwnerAnnotationRoundTripsWithOwnerAnnotations(t *testing.T) {
 	g.Expect(reqs[0].Name).Should(Equal("my-dashboard"))
 	g.Expect(reqs[0].Namespace).Should(Equal("dashboard-ns"))
 }
-
-// TODO: Remove this test once all downstream consumers have migrated to the new names.
-func TestDeprecatedAliasesRoundTrip(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	owner := newOwner("example.com/v1", "Dashboard", "my-dashboard", "uid-dep")
-	owner.SetNamespace("dashboard-ns")
-	owner.SetGeneration(3)
-
-	child := newObj()
-	err := cluster.ApplyMetaOptions(child, cluster.WithDynamicOwner(owner))
-	g.Expect(err).ShouldNot(HaveOccurred())
-
-	mapFn := cluster.EnqueueOwner()
-	reqs := mapFn(context.Background(), child)
-	g.Expect(reqs).Should(HaveLen(1))
-	g.Expect(reqs[0].Name).Should(Equal("my-dashboard"))
-	g.Expect(reqs[0].Namespace).Should(Equal("dashboard-ns"))
-}
