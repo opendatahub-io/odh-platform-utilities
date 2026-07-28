@@ -81,15 +81,16 @@ var crdGVK = schema.GroupVersionKind{
 
 // Deployer applies rendered Kubernetes resources to the cluster.
 type Deployer struct {
-	sortFn          SortFn
-	cache           *Cache
-	labels          map[string]string
-	annotations     map[string]string
-	mergeStrategies map[schema.GroupVersionKind]MergeFn
-	fieldOwner      string
-	crdFieldOwner   string
-	managedKey      string
-	mode            Mode
+	sortFn               SortFn
+	cache                *Cache
+	labels               map[string]string
+	annotations          map[string]string
+	mergeStrategies      map[schema.GroupVersionKind]MergeFn
+	excludeFromOwnership map[schema.GroupVersionKind]struct{}
+	fieldOwner           string
+	crdFieldOwner        string
+	managedKey           string
+	mode                 Mode
 }
 
 // Option configures a Deployer.
@@ -211,12 +212,29 @@ func WithManagedAnnotation(key string) Option {
 	}
 }
 
+// WithExcludeFromOwnership registers additional resource types that must never
+// receive controller ownership from the Deployer. Namespaces are excluded by default.
+func WithExcludeFromOwnership(gvks ...schema.GroupVersionKind) Option {
+	return func(d *Deployer) {
+		if d.excludeFromOwnership == nil {
+			d.excludeFromOwnership = map[schema.GroupVersionKind]struct{}{}
+		}
+
+		for _, gvk := range gvks {
+			d.excludeFromOwnership[gvk] = struct{}{}
+		}
+	}
+}
+
 // NewDeployer creates a Deployer with the given options.
 func NewDeployer(opts ...Option) *Deployer {
 	d := &Deployer{
 		mode:          ModeSSA,
 		crdFieldOwner: "platform.opendatahub.io",
 		managedKey:    annotations.ManagedByODHOperator,
+		excludeFromOwnership: map[schema.GroupVersionKind]struct{}{
+			{Group: "", Version: "v1", Kind: "Namespace"}: {},
+		},
 	}
 
 	for _, opt := range opts {
@@ -431,6 +449,12 @@ func (d *Deployer) stampMetadata(obj *unstructured.Unstructured, input DeployInp
 	}
 }
 
+func (d *Deployer) isExcludedFromOwnership(gvk schema.GroupVersionKind) bool {
+	_, found := d.excludeFromOwnership[gvk]
+
+	return found
+}
+
 func (d *Deployer) applyResource(
 	ctx context.Context,
 	input DeployInput,
@@ -449,7 +473,7 @@ func (d *Deployer) applyResource(
 		return deployed, nil
 	}
 
-	if input.Owner != nil {
+	if input.Owner != nil && !d.isExcludedFromOwnership(obj.GroupVersionKind()) {
 		obj.SetOwnerReferences(nil)
 
 		err := ctrl.SetControllerReference(input.Owner, obj, input.Client.Scheme())

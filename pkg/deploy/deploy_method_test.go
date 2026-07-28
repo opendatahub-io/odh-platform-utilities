@@ -365,3 +365,214 @@ func TestDeployMultipleResources(t *testing.T) {
 		g.Expect(result.GetName()).Should(Equal(name))
 	}
 }
+
+func TestDeployNamespaceExcludedFromOwnershipByDefault(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	scheme := newDeployScheme(g)
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	owner := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owner",
+			Namespace: "default",
+			UID:       "owner-uid",
+		},
+	}
+
+	ns := makeObj("v1", "Namespace", "", "opendatahub")
+
+	d := deploy.NewDeployer(deploy.WithMode(deploy.ModePatch))
+	err := d.Deploy(context.Background(), deploy.DeployInput{
+		Client:    cli,
+		Owner:     owner,
+		Resources: []unstructured.Unstructured{ns},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	result := &unstructured.Unstructured{}
+	result.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Namespace"})
+	err = cli.Get(context.Background(), client.ObjectKey{Name: "opendatahub"}, result)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(result.GetOwnerReferences()).Should(BeEmpty())
+}
+
+func TestDeployWithExcludeFromOwnershipSkipsConfiguredGVK(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	scheme := newDeployScheme(g)
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	owner := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owner",
+			Namespace: "default",
+			UID:       "owner-uid",
+		},
+	}
+
+	gvk := schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"}
+	cm := makeObj("v1", "ConfigMap", "default", "test-cm")
+
+	d := deploy.NewDeployer(
+		deploy.WithMode(deploy.ModePatch),
+		deploy.WithExcludeFromOwnership(gvk),
+	)
+
+	err := d.Deploy(context.Background(), deploy.DeployInput{
+		Client:    cli,
+		Owner:     owner,
+		Resources: []unstructured.Unstructured{cm},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	result := &unstructured.Unstructured{}
+	result.SetGroupVersionKind(gvk)
+	err = cli.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "test-cm"}, result)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(result.GetOwnerReferences()).Should(BeEmpty())
+}
+
+func TestDeployWithExcludeFromOwnershipIsAdditive(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	scheme := newDeployScheme(g)
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	owner := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owner",
+			Namespace: "default",
+			UID:       "owner-uid",
+		},
+	}
+
+	customGVK := schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"}
+	cm := makeObj("v1", "ConfigMap", "default", "excluded-cm")
+	ns := makeObj("v1", "Namespace", "", "test-ns")
+
+	d := deploy.NewDeployer(
+		deploy.WithMode(deploy.ModePatch),
+		deploy.WithExcludeFromOwnership(customGVK),
+	)
+
+	err := d.Deploy(context.Background(), deploy.DeployInput{
+		Client:    cli,
+		Owner:     owner,
+		Resources: []unstructured.Unstructured{cm, ns},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	resultCM := &unstructured.Unstructured{}
+	resultCM.SetGroupVersionKind(customGVK)
+	err = cli.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "excluded-cm"}, resultCM)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(resultCM.GetOwnerReferences()).Should(BeEmpty(), "custom-excluded GVK should have no owner ref")
+
+	resultNS := &unstructured.Unstructured{}
+	resultNS.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Namespace"})
+	err = cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, resultNS)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(resultNS.GetOwnerReferences()).Should(BeEmpty(), "default-excluded Namespace should still have no owner ref")
+}
+
+func TestDeployExcludedResourcePreservesExistingOwnerReferences(t *testing.T) {
+	t.Parallel()
+
+	modes := []struct {
+		name string
+		mode deploy.Mode
+	}{
+		{"Patch", deploy.ModePatch},
+		{"SSA", deploy.ModeSSA},
+	}
+
+	for _, tc := range modes {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			scheme := newDeployScheme(g)
+
+			preExistingRef := metav1.OwnerReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "unrelated-owner",
+				UID:        "unrelated-uid",
+			}
+
+			existing := makeObj("v1", "Namespace", "", "opendatahub")
+			existing.SetOwnerReferences([]metav1.OwnerReference{preExistingRef})
+
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&existing).Build()
+
+			owner := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "owner",
+					Namespace: "default",
+					UID:       "owner-uid",
+				},
+			}
+
+			ns := makeObj("v1", "Namespace", "", "opendatahub")
+
+			d := deploy.NewDeployer(deploy.WithMode(tc.mode))
+			err := d.Deploy(context.Background(), deploy.DeployInput{
+				Client:    cli,
+				Owner:     owner,
+				Resources: []unstructured.Unstructured{ns},
+			})
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			result := &unstructured.Unstructured{}
+			result.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "Namespace"})
+			err = cli.Get(context.Background(), client.ObjectKey{Name: "opendatahub"}, result)
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			refs := result.GetOwnerReferences()
+			g.Expect(refs).Should(HaveLen(1))
+			g.Expect(string(refs[0].UID)).Should(Equal("unrelated-uid"))
+			g.Expect(refs[0].Name).Should(Equal("unrelated-owner"))
+		})
+	}
+}
+
+func TestDeployNonExcludedResourceStillGetsOwnerReference(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	scheme := newDeployScheme(g)
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	owner := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owner",
+			Namespace: "default",
+			UID:       "owner-uid",
+		},
+	}
+
+	cm := makeObj("v1", "ConfigMap", "default", "owned-cm")
+
+	d := deploy.NewDeployer(deploy.WithMode(deploy.ModePatch))
+	err := d.Deploy(context.Background(), deploy.DeployInput{
+		Client:    cli,
+		Owner:     owner,
+		Resources: []unstructured.Unstructured{cm},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	result := &unstructured.Unstructured{}
+	result.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"})
+	err = cli.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "owned-cm"}, result)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	refs := result.GetOwnerReferences()
+	g.Expect(refs).Should(HaveLen(1))
+	g.Expect(string(refs[0].UID)).Should(Equal("owner-uid"))
+	g.Expect(refs[0].Controller).ShouldNot(BeNil())
+	g.Expect(*refs[0].Controller).Should(BeTrue())
+}
