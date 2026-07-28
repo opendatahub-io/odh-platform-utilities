@@ -534,8 +534,10 @@ func TestDeployExcludedResourcePreservesExistingOwnerReferences(t *testing.T) {
 
 			refs := result.GetOwnerReferences()
 			g.Expect(refs).Should(HaveLen(1))
-			g.Expect(string(refs[0].UID)).Should(Equal("unrelated-uid"))
-			g.Expect(refs[0].Name).Should(Equal("unrelated-owner"))
+			g.Expect(refs[0].APIVersion).Should(Equal(preExistingRef.APIVersion))
+			g.Expect(refs[0].Kind).Should(Equal(preExistingRef.Kind))
+			g.Expect(refs[0].Name).Should(Equal(preExistingRef.Name))
+			g.Expect(string(refs[0].UID)).Should(Equal(string(preExistingRef.UID)))
 		})
 	}
 }
