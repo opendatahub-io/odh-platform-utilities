@@ -153,6 +153,7 @@ func WithDynamicOwnership(opts ...DynamicOwnershipOption) ReconcilerOpt {
 // Reconciler provides generic reconciliation functionality for operator objects.
 type Reconciler struct {
 	Client          client.Client
+	apiReader       client.Reader
 	discoveryClient discovery.DiscoveryInterface
 	dynamicClient   dynamic.Interface
 
@@ -196,6 +197,7 @@ func NewReconciler[T api.PlatformObject](mgr manager.Manager, name string, objec
 
 	cc := Reconciler{
 		Client:            mgr.GetClient(),
+		apiReader:         mgr.GetAPIReader(),
 		Scheme:            mgr.GetScheme(),
 		Log:               ctrl.Log.WithName("controllers").WithName(name),
 		Recorder:          mgr.GetEventRecorder(name),
@@ -298,7 +300,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	if err := r.Client.Get(ctx, req.NamespacedName, res); err != nil {
+	// Read from API server, not informer cache, to avoid missing a concurrent delete.
+	if err := r.apiReader.Get(ctx, req.NamespacedName, res); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
