@@ -1,0 +1,47 @@
+# Example flakiness config for a module repo (KServe).
+# Copy this to your repo root and adjust the values.
+#
+# Full reference: docs/flakiness-onboarding.md
+# Env var overrides: FLAKINESS_* (see docs)
+
+component: kserve
+
+gcs:
+  bucket: test-platform-results
+  job_prefixes:
+    - logs/periodic-ci-opendatahub-io-kserve-main-e2e
+    - pr-logs/pull/opendatahub-io_kserve/pull-ci-kserve-main-e2e
+
+analysis:
+  threshold: 0.2        # flake rate above which a test is quarantined
+  window_days: 30       # rolling analysis window
+  min_runs: 5           # minimum runs before classification is reliable
+
+quarantine:
+  config_path: hack/quarantine.json
+  auto_quarantine: true
+  exclude_patterns:
+    - "TestSmoke/.*"    # critical smoke tests — never quarantine
+
+jira:
+  api_url: https://redhat.atlassian.net
+  user_email: bot@redhat.com
+  project: RHOAIENG
+  issue_type: Bug
+  component: KServe
+  labels: [flaky-test, kserve]
+  token_env: QUARANTINE_JIRA_API_TOKEN
+  quarantine_duration: 720h   # 30 days
+  token_expires_at: "2026-12-31T00:00:00Z"  # warns 14 days before expiry
+  token_expiry_warning_days: 14
+
+# Optional: timeout budget analysis (omit section to disable)
+timeout_budget:
+  pipeline_timeout: 2h
+  suite_timeouts:
+    e2e-predictor: 30m
+    e2e-explainer: 20m
+  test_timeouts:
+    TestPredictorGrpc: 5m
+    TestExplainerTabular: 10m
+  warning_threshold: 0.8   # flag tests using >=80% of their timeout

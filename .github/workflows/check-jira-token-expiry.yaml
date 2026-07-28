@@ -50,7 +50,7 @@ jobs:
             --label "jira-token-rotation" \
             --state open \
             --json number \
-            --jq '.[0].number'); then
+            --jq '.[0].number // empty'); then
             echo "gh issue list failed — skipping issue creation"
             exit 1
           fi

@@ -2,6 +2,7 @@ package jira
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -57,14 +58,24 @@ func FromFlakinessConfig(fc flakiness.JiraConfig) (Config, error) {
 	}
 
 	cfg := Config{
-		APIURL:             fc.APIURL,
-		UserEmail:          fc.UserEmail,
-		ProjectKey:         fc.Project,
-		IssueType:          fc.IssueType,
-		Component:          fc.Component,
-		Labels:             fc.Labels,
-		APIToken:           token,
-		QuarantineDuration: fc.QuarantineDuration,
+		APIURL:                 fc.APIURL,
+		UserEmail:              fc.UserEmail,
+		ProjectKey:             fc.Project,
+		IssueType:              fc.IssueType,
+		Component:              fc.Component,
+		Labels:                 fc.Labels,
+		APIToken:               token,
+		QuarantineDuration:     fc.QuarantineDuration,
+		TokenExpiryWarningDays: fc.TokenExpiryWarningDays,
+	}
+
+	if fc.TokenExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, fc.TokenExpiresAt)
+		if err != nil {
+			return Config{}, fmt.Errorf("parsing token_expires_at: %w", err)
+		}
+
+		cfg.TokenExpiresAt = t
 	}
 
 	return cfg, cfg.Validate()

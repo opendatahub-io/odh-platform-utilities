@@ -71,8 +71,9 @@ const (
 )
 
 // AnalyzeBudget compares observed runtimes against configured timeouts.
-// Pipeline utilisation sums individual test durations — when suites run in
-// parallel this represents CPU-time and may exceed 1.0.
+// Pipeline and suite utilisation are computed per-build (grouped by BuildID)
+// and the worst single build is reported. Per-test near-timeout detection
+// uses percentiles across all builds.
 func (a *RuntimeAnalyzer) AnalyzeBudget(
 	ctx context.Context,
 	cfg TimeoutConfig,
@@ -85,59 +86,116 @@ func (a *RuntimeAnalyzer) AnalyzeBudget(
 	}
 
 	runtimes := aggregateRuntimes(series)
-	suiteRuntimes := aggregateSuiteRuntimes(series)
+	perBuild := groupByBuild(series)
 
 	report := &BudgetReport{}
 
 	if cfg.PipelineTimeout > 0 {
-		report.Pipeline = computePipelineBudget(suiteRuntimes, cfg.PipelineTimeout)
+		report.Pipeline = computePipelineBudget(perBuild, cfg.PipelineTimeout)
 	}
 
-	report.Suites = computeSuiteBudgets(suiteRuntimes, cfg.SuiteTimeouts)
+	report.Suites = computeSuiteBudgets(perBuild, cfg.SuiteTimeouts)
 	report.NearTimeout = detectNearTimeout(runtimes, cfg.TestTimeouts, threshold)
 	report.Recommendations = computeRecommendations(runtimes, cfg.TestTimeouts, threshold)
 
 	return report, nil
 }
 
+// buildSuiteTotals holds per-suite duration totals for a single build.
+type buildSuiteTotals struct {
+	suites map[string]float64
+}
+
+// groupByBuild partitions duration series by BuildID, returning a map
+// from BuildID to per-suite totals.
+func groupByBuild(series []durationSeries) map[string]*buildSuiteTotals {
+	builds := make(map[string]*buildSuiteTotals)
+
+	for _, s := range series {
+		buildID := s.labels.Get(LabelBuildID)
+		if buildID == "" {
+			buildID = "_unknown"
+		}
+
+		bt, ok := builds[buildID]
+		if !ok {
+			bt = &buildSuiteTotals{suites: make(map[string]float64)}
+			builds[buildID] = bt
+		}
+
+		suite := s.labels.Get(LabelSuite)
+
+		for _, v := range s.values {
+			bt.suites[suite] += v
+		}
+	}
+
+	return builds
+}
+
 func computePipelineBudget(
-	suites []SuiteRuntime,
+	perBuild map[string]*buildSuiteTotals,
 	pipelineTimeout time.Duration,
 ) *BudgetUtilisation {
-	var total time.Duration
-	for _, s := range suites {
-		total += s.Total
+	var maxTotal float64
+
+	for _, bt := range perBuild {
+		var buildTotal float64
+		for _, suiteTotal := range bt.suites {
+			buildTotal += suiteTotal
+		}
+
+		if buildTotal > maxTotal {
+			maxTotal = buildTotal
+		}
 	}
+
+	actual := time.Duration(maxTotal * float64(time.Second))
 
 	return &BudgetUtilisation{
 		Name:              "pipeline",
-		ActualDuration:    total,
+		ActualDuration:    actual,
 		ConfiguredTimeout: pipelineTimeout,
-		Utilisation:       float64(total) / float64(pipelineTimeout),
+		Utilisation:       float64(actual) / float64(pipelineTimeout),
 	}
 }
 
 func computeSuiteBudgets(
-	suites []SuiteRuntime,
+	perBuild map[string]*buildSuiteTotals,
 	timeouts map[string]time.Duration,
 ) []BudgetUtilisation {
 	if len(timeouts) == 0 {
 		return nil
 	}
 
-	results := make([]BudgetUtilisation, 0, len(suites))
+	maxPerSuite := make(map[string]float64)
 
-	for _, s := range suites {
-		timeout, ok := timeouts[s.Suite]
-		if !ok || timeout <= 0 {
+	for _, bt := range perBuild {
+		for suite, total := range bt.suites {
+			if total > maxPerSuite[suite] {
+				maxPerSuite[suite] = total
+			}
+		}
+	}
+
+	results := make([]BudgetUtilisation, 0, len(timeouts))
+
+	for suite, timeout := range timeouts {
+		if timeout <= 0 {
 			continue
 		}
 
+		maxDur, ok := maxPerSuite[suite]
+		if !ok {
+			continue
+		}
+
+		actual := time.Duration(maxDur * float64(time.Second))
 		results = append(results, BudgetUtilisation{
-			Name:              s.Suite,
-			ActualDuration:    s.Total,
+			Name:              suite,
+			ActualDuration:    actual,
 			ConfiguredTimeout: timeout,
-			Utilisation:       float64(s.Total) / float64(timeout),
+			Utilisation:       float64(actual) / float64(timeout),
 		})
 	}
 

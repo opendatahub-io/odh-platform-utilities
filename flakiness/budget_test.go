@@ -310,6 +310,86 @@ func TestAnalyzeBudget_EmptyStore(t *testing.T) {
 	assert.InDelta(t, 0.0, report.Pipeline.Utilisation, 0.001)
 }
 
+func TestAnalyzeBudget_PerBuildMax(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	ctx := context.Background()
+	ts := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+
+	// Ingest two builds with different total durations.
+	// Build "slow" has 600s total (1 test @ 600s in "e2e").
+	// Build "fast" has 300s total (1 test @ 300s in "e2e").
+	// The budget should report max(600s, 300s) = 600s, not sum(900s).
+	results := []flakiness.TestResult{
+		{
+			Name:      "TestSlow",
+			Suite:     "e2e",
+			Job:       "periodic-ci",
+			BuildID:   "slow",
+			Result:    flakiness.OutcomePass,
+			Duration:  10 * time.Minute,
+			Timestamp: ts,
+		},
+		{
+			Name:      "TestSlow",
+			Suite:     "e2e",
+			Job:       "periodic-ci",
+			BuildID:   "fast",
+			Result:    flakiness.OutcomePass,
+			Duration:  5 * time.Minute,
+			Timestamp: ts.Add(time.Minute),
+		},
+	}
+
+	app := store.Appender(ctx)
+	for _, r := range results {
+		require.NoError(t, flakiness.RecordTestResult(app, r))
+	}
+	require.NoError(t, app.Commit())
+
+	analyzer := flakiness.NewRuntimeAnalyzer(store)
+
+	t.Run("pipeline uses max single build not sum", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := flakiness.TimeoutConfig{
+			PipelineTimeout: 15 * time.Minute,
+		}
+
+		report, err := analyzer.AnalyzeBudget(
+			ctx, cfg, flakiness.DefaultNearTimeoutThreshold,
+			ts.Add(-time.Minute), ts.Add(5*time.Minute),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, report.Pipeline)
+
+		// Max single build is 10 minutes, not 15 (sum of both).
+		assert.Equal(t, 10*time.Minute, report.Pipeline.ActualDuration)
+		assert.InDelta(t, 10.0/15.0, report.Pipeline.Utilisation, 0.001)
+	})
+
+	t.Run("suite uses max single build not sum", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := flakiness.TimeoutConfig{
+			SuiteTimeouts: map[string]time.Duration{
+				"e2e": 15 * time.Minute,
+			},
+		}
+
+		report, err := analyzer.AnalyzeBudget(
+			ctx, cfg, flakiness.DefaultNearTimeoutThreshold,
+			ts.Add(-time.Minute), ts.Add(5*time.Minute),
+		)
+		require.NoError(t, err)
+		require.Len(t, report.Suites, 1)
+
+		assert.Equal(t, 10*time.Minute, report.Suites[0].ActualDuration)
+		assert.InDelta(t, 10.0/15.0, report.Suites[0].Utilisation, 0.001)
+	})
+}
+
 func ingestBudgetData(
 	t *testing.T,
 	store *flakiness.Store,
