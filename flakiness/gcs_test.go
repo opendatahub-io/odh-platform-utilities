@@ -3,6 +3,7 @@ package flakiness_test
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,6 +44,8 @@ func (f *fakeBucketClient) ListObjects(_ context.Context, bucket, prefix string)
 			names = append(names, name)
 		}
 	}
+
+	sort.Strings(names)
 
 	return names, nil
 }

@@ -22,11 +22,12 @@ const (
 // Config holds per-component flakiness system configuration, typically
 // loaded from a .flakiness.yaml file in the module repository root.
 type Config struct {
-	Component  string           `yaml:"component"`
-	GCS        GCSConfig        `yaml:"gcs"`
-	Analysis   AnalysisConfig   `yaml:"analysis"`
-	Quarantine QuarantineConfig `yaml:"quarantine"`
-	Jira       JiraConfig       `yaml:"jira"`
+	Component     string              `yaml:"component"`
+	GCS           GCSConfig           `yaml:"gcs"`
+	Analysis      AnalysisConfig      `yaml:"analysis"`
+	Quarantine    QuarantineConfig    `yaml:"quarantine"`
+	Jira          JiraConfig          `yaml:"jira"`
+	TimeoutBudget TimeoutBudgetConfig `yaml:"timeout_budget"` //nolint:tagliatelle // snake_case is the YAML config convention
 }
 
 // GCSConfig specifies the GCS bucket and job prefixes to scrape.
@@ -49,16 +50,69 @@ type QuarantineConfig struct {
 	ExcludePatterns []string `yaml:"exclude_patterns"` //nolint:tagliatelle // snake_case is the YAML config convention
 }
 
+// TimeoutBudgetConfig specifies timeout values for budget analysis.
+// When present, the pipeline runs [RuntimeAnalyzer.AnalyzeBudget] after
+// the flake analysis phase.
+type TimeoutBudgetConfig struct {
+	PipelineTimeout  time.Duration     `yaml:"pipeline_timeout"`  //nolint:tagliatelle // snake_case is the YAML config convention
+	SuiteTimeouts    map[string]string `yaml:"suite_timeouts"`    //nolint:tagliatelle // snake_case is the YAML config convention
+	TestTimeouts     map[string]string `yaml:"test_timeouts"`     //nolint:tagliatelle // snake_case is the YAML config convention
+	WarningThreshold float64           `yaml:"warning_threshold"` //nolint:tagliatelle // snake_case is the YAML config convention
+}
+
+// IsConfigured returns true if any timeout budget values are set.
+func (t *TimeoutBudgetConfig) IsConfigured() bool {
+	return t.PipelineTimeout > 0 || len(t.SuiteTimeouts) > 0 || len(t.TestTimeouts) > 0
+}
+
+// ToTimeoutConfig converts YAML string durations into a [TimeoutConfig]
+// suitable for [RuntimeAnalyzer.AnalyzeBudget].
+func (t *TimeoutBudgetConfig) ToTimeoutConfig() (TimeoutConfig, error) {
+	tc := TimeoutConfig{
+		PipelineTimeout: t.PipelineTimeout,
+	}
+
+	if len(t.SuiteTimeouts) > 0 {
+		tc.SuiteTimeouts = make(map[string]time.Duration, len(t.SuiteTimeouts))
+
+		for k, v := range t.SuiteTimeouts {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return TimeoutConfig{}, fmt.Errorf("timeout_budget.suite_timeouts[%q]: %w", k, err)
+			}
+
+			tc.SuiteTimeouts[k] = d
+		}
+	}
+
+	if len(t.TestTimeouts) > 0 {
+		tc.TestTimeouts = make(map[string]time.Duration, len(t.TestTimeouts))
+
+		for k, v := range t.TestTimeouts {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return TimeoutConfig{}, fmt.Errorf("timeout_budget.test_timeouts[%q]: %w", k, err)
+			}
+
+			tc.TestTimeouts[k] = d
+		}
+	}
+
+	return tc, nil
+}
+
 // JiraConfig specifies how quarantine Jira tickets are filed.
 type JiraConfig struct {
-	APIURL             string        `yaml:"api_url"`    //nolint:tagliatelle // snake_case is the YAML config convention
-	UserEmail          string        `yaml:"user_email"` //nolint:tagliatelle // snake_case is the YAML config convention
-	Project            string        `yaml:"project"`
-	IssueType          string        `yaml:"issue_type"` //nolint:tagliatelle // snake_case is the YAML config convention
-	Component          string        `yaml:"component"`
-	Labels             []string      `yaml:"labels"`
-	TokenEnv           string        `yaml:"token_env"`           //nolint:tagliatelle // snake_case is the YAML config convention
-	QuarantineDuration time.Duration `yaml:"quarantine_duration"` //nolint:tagliatelle // snake_case is the YAML config convention
+	APIURL                 string        `yaml:"api_url"`    //nolint:tagliatelle // snake_case is the YAML config convention
+	UserEmail              string        `yaml:"user_email"` //nolint:tagliatelle // snake_case is the YAML config convention
+	Project                string        `yaml:"project"`
+	IssueType              string        `yaml:"issue_type"` //nolint:tagliatelle // snake_case is the YAML config convention
+	Component              string        `yaml:"component"`
+	Labels                 []string      `yaml:"labels"`
+	TokenEnv               string        `yaml:"token_env"`                 //nolint:tagliatelle // snake_case is the YAML config convention
+	QuarantineDuration     time.Duration `yaml:"quarantine_duration"`       //nolint:tagliatelle // snake_case is the YAML config convention
+	TokenExpiresAt         string        `yaml:"token_expires_at"`          //nolint:tagliatelle // snake_case is the YAML config convention
+	TokenExpiryWarningDays int           `yaml:"token_expiry_warning_days"` //nolint:tagliatelle // snake_case is the YAML config convention
 }
 
 // LoadConfig reads a YAML configuration file and returns a validated
@@ -124,6 +178,32 @@ func (c *Config) Validate() error {
 	for i, pattern := range c.Quarantine.ExcludePatterns {
 		if _, err := regexp.Compile(pattern); err != nil {
 			errs = append(errs, fmt.Errorf("quarantine.exclude_patterns[%d] %q: invalid regex: %w", i, pattern, err))
+		}
+	}
+
+	if c.Jira.APIURL != "" && c.Jira.TokenEnv == "" {
+		errs = append(errs, errors.New("jira.token_env is required when jira.api_url is set"))
+	}
+
+	if c.Jira.TokenEnv != "" && c.Jira.APIURL == "" {
+		errs = append(errs, errors.New("jira.api_url is required when jira.token_env is set"))
+	}
+
+	if c.Jira.TokenExpiresAt != "" {
+		if _, err := time.Parse(time.RFC3339, c.Jira.TokenExpiresAt); err != nil {
+			errs = append(errs, fmt.Errorf("jira.token_expires_at must be RFC3339 format: %w", err))
+		}
+	}
+
+	if c.TimeoutBudget.WarningThreshold != 0 &&
+		(c.TimeoutBudget.WarningThreshold <= 0 || c.TimeoutBudget.WarningThreshold > 1) {
+		errs = append(errs, fmt.Errorf("timeout_budget.warning_threshold must be in (0, 1], got %g",
+			c.TimeoutBudget.WarningThreshold))
+	}
+
+	if c.TimeoutBudget.IsConfigured() {
+		if _, err := c.TimeoutBudget.ToTimeoutConfig(); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
@@ -219,6 +299,10 @@ func (c *Config) applyEnvOverrides() error {
 
 	if v := os.Getenv("FLAKINESS_JIRA_TOKEN_ENV"); v != "" {
 		c.Jira.TokenEnv = v
+	}
+
+	if v := os.Getenv("FLAKINESS_JIRA_TOKEN_EXPIRES_AT"); v != "" {
+		c.Jira.TokenExpiresAt = v
 	}
 
 	return errors.Join(errs...)

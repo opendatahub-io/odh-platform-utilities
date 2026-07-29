@@ -605,3 +605,292 @@ jira:
 	assert.InDelta(t, 0.3, kserveCfg.Analysis.Threshold, 0.001)
 	assert.InDelta(t, 0.15, modelmeshCfg.Analysis.Threshold, 0.001)
 }
+
+func TestConfig_Validate_TimeoutBudget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		cfg      flakiness.Config
+		errParts []string
+	}{
+		{
+			name: "valid timeout budget",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				TimeoutBudget: flakiness.TimeoutBudgetConfig{
+					PipelineTimeout:  2 * time.Hour,
+					WarningThreshold: 0.8,
+					SuiteTimeouts:    map[string]string{"e2e": "30m"},
+					TestTimeouts:     map[string]string{"TestA": "5m"},
+				},
+			},
+		},
+		{
+			name: "warning threshold out of range",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				TimeoutBudget: flakiness.TimeoutBudgetConfig{
+					WarningThreshold: 1.5,
+				},
+			},
+			errParts: []string{"timeout_budget.warning_threshold must be in (0, 1]"},
+		},
+		{
+			name: "invalid suite timeout duration",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				TimeoutBudget: flakiness.TimeoutBudgetConfig{
+					PipelineTimeout: time.Hour,
+					SuiteTimeouts:   map[string]string{"e2e": "not-a-duration"},
+				},
+			},
+			errParts: []string{"timeout_budget.suite_timeouts"},
+		},
+		{
+			name: "invalid test timeout duration",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				TimeoutBudget: flakiness.TimeoutBudgetConfig{
+					PipelineTimeout: time.Hour,
+					TestTimeouts:    map[string]string{"TestA": "xyz"},
+				},
+			},
+			errParts: []string{"timeout_budget.test_timeouts"},
+		},
+		{
+			name: "empty budget is valid (disabled)",
+			cfg: flakiness.Config{
+				Component:     "kserve",
+				GCS:           flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:      flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				TimeoutBudget: flakiness.TimeoutBudgetConfig{},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.cfg.Validate()
+			if len(tc.errParts) == 0 {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			for _, part := range tc.errParts {
+				assert.Contains(t, err.Error(), part)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_TokenExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		cfg      flakiness.Config
+		errParts []string
+	}{
+		{
+			name: "valid RFC3339",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				Jira: flakiness.JiraConfig{
+					APIURL:         "https://jira.example.com",
+					TokenEnv:       "TOKEN",
+					TokenExpiresAt: "2026-12-31T00:00:00Z",
+				},
+			},
+		},
+		{
+			name: "invalid date format",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				Jira: flakiness.JiraConfig{
+					APIURL:         "https://jira.example.com",
+					TokenEnv:       "TOKEN",
+					TokenExpiresAt: "2026-12-31",
+				},
+			},
+			errParts: []string{"jira.token_expires_at must be RFC3339 format"},
+		},
+		{
+			name: "empty is valid (not tracked)",
+			cfg: flakiness.Config{
+				Component: "kserve",
+				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
+				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
+				Jira: flakiness.JiraConfig{
+					APIURL:   "https://jira.example.com",
+					TokenEnv: "TOKEN",
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.cfg.Validate()
+			if len(tc.errParts) == 0 {
+				assert.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			for _, part := range tc.errParts {
+				assert.Contains(t, err.Error(), part)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_TimeoutBudget(t *testing.T) {
+	t.Parallel()
+
+	yaml := `component: kserve
+gcs:
+  bucket: origin-ci-test
+  job_prefixes:
+    - logs/periodic-ci-kserve
+timeout_budget:
+  pipeline_timeout: 2h
+  suite_timeouts:
+    e2e-predictor: "30m"
+    e2e-explainer: "20m"
+  test_timeouts:
+    TestPredictorGrpc: "5m"
+  warning_threshold: 0.85
+`
+	path := writeConfig(t, yaml)
+
+	cfg, err := flakiness.LoadConfig(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2*time.Hour, cfg.TimeoutBudget.PipelineTimeout)
+	assert.Equal(t, map[string]string{
+		"e2e-predictor": "30m",
+		"e2e-explainer": "20m",
+	}, cfg.TimeoutBudget.SuiteTimeouts)
+	assert.Equal(t, map[string]string{
+		"TestPredictorGrpc": "5m",
+	}, cfg.TimeoutBudget.TestTimeouts)
+	assert.InDelta(t, 0.85, cfg.TimeoutBudget.WarningThreshold, 0.001)
+
+	tc, err := cfg.TimeoutBudget.ToTimeoutConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Hour, tc.PipelineTimeout)
+	assert.Equal(t, 30*time.Minute, tc.SuiteTimeouts["e2e-predictor"])
+	assert.Equal(t, 20*time.Minute, tc.SuiteTimeouts["e2e-explainer"])
+	assert.Equal(t, 5*time.Minute, tc.TestTimeouts["TestPredictorGrpc"])
+}
+
+func TestLoadConfig_TokenExpiry(t *testing.T) {
+	t.Parallel()
+
+	yaml := `component: kserve
+gcs:
+  bucket: origin-ci-test
+  job_prefixes:
+    - logs/periodic-ci-kserve
+jira:
+  api_url: https://redhat.atlassian.net
+  user_email: bot@example.com
+  project: RHOAIENG
+  token_env: TOKEN
+  token_expires_at: "2026-12-31T00:00:00Z"
+  token_expiry_warning_days: 7
+`
+	path := writeConfig(t, yaml)
+
+	cfg, err := flakiness.LoadConfig(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "2026-12-31T00:00:00Z", cfg.Jira.TokenExpiresAt)
+	assert.Equal(t, 7, cfg.Jira.TokenExpiryWarningDays)
+}
+
+func TestLoadConfig_EnvOverride_TokenExpiresAt(t *testing.T) {
+	yaml := `component: kserve
+gcs:
+  bucket: origin-ci-test
+  job_prefixes:
+    - logs/periodic-ci-kserve
+jira:
+  api_url: https://redhat.atlassian.net
+  user_email: bot@example.com
+  project: RHOAIENG
+  token_env: TOKEN
+`
+	path := writeConfig(t, yaml)
+
+	t.Setenv("FLAKINESS_JIRA_TOKEN_EXPIRES_AT", "2027-06-01T00:00:00Z")
+
+	cfg, err := flakiness.LoadConfig(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "2027-06-01T00:00:00Z", cfg.Jira.TokenExpiresAt)
+}
+
+func TestTimeoutBudgetConfig_IsConfigured(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  flakiness.TimeoutBudgetConfig
+		want bool
+	}{
+		{
+			name: "empty",
+			cfg:  flakiness.TimeoutBudgetConfig{},
+			want: false,
+		},
+		{
+			name: "pipeline timeout only",
+			cfg:  flakiness.TimeoutBudgetConfig{PipelineTimeout: time.Hour},
+			want: true,
+		},
+		{
+			name: "suite timeouts only",
+			cfg:  flakiness.TimeoutBudgetConfig{SuiteTimeouts: map[string]string{"e2e": "1h"}},
+			want: true,
+		},
+		{
+			name: "test timeouts only",
+			cfg:  flakiness.TimeoutBudgetConfig{TestTimeouts: map[string]string{"TestA": "5m"}},
+			want: true,
+		},
+		{
+			name: "warning threshold alone is not configured",
+			cfg:  flakiness.TimeoutBudgetConfig{WarningThreshold: 0.9},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, tc.cfg.IsConfigured())
+		})
+	}
+}

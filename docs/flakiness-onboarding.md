@@ -6,7 +6,7 @@ system for their component.
 ## Prerequisites
 
 - Your component's CI jobs produce JUnit XML artifacts in GCS
-  (`origin-ci-test` bucket or similar)
+  (`test-platform-results` bucket — the public OpenShift CI artifact store)
 - A Jira API token secret is available in your CI namespace (for auto-filing)
 
 ## Step 1: Add `.flakiness.yaml` to your repo
@@ -17,7 +17,7 @@ Create a `.flakiness.yaml` in your repository root:
 component: kserve
 
 gcs:
-  bucket: origin-ci-test
+  bucket: test-platform-results
   job_prefixes:
     - pr-logs/pull/opendatahub-io_kserve/pull-ci-kserve-main-e2e
     - logs/periodic-ci-opendatahub-io-kserve-main-e2e
@@ -44,7 +44,7 @@ jira:
 ```
 
 Find your GCS job prefixes by browsing
-`https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/origin-ci-test/`
+`https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/test-platform-results/`
 and locating your component's periodic and presubmit job directories.
 
 ## Step 2: Add the Prow post step
@@ -122,3 +122,119 @@ Each component's quarantine state is fully independent:
 - Separate `quarantine.json` per repo (path set in `.flakiness.yaml`)
 - Jira tickets filed with component-specific labels
 - Flake rate data scoped to configured job prefixes only
+
+## Integration Paths
+
+### Path 1: Go Library (direct import)
+
+```go
+import "github.com/opendatahub-io/odh-platform-utilities/flakiness"
+
+cfg, err := flakiness.LoadConfig(".flakiness.yaml")
+if err != nil { ... }
+
+result, err := flakiness.Run(ctx, cfg,
+    flakiness.WithJiraClient(jiraClient),
+    flakiness.WithPriorEntries(priorEntries),
+)
+// result.QuarantinedTests — tests to skip
+// result.NewlyQuarantined — Jira tickets filed this run
+// result.Unquarantined    — tests removed (Jira resolved)
+```
+
+### Path 2: CLI tool
+
+```bash
+flakiness-tool run --config .flakiness.yaml
+```
+
+### Path 3: Container image (Prow post step)
+
+```yaml
+post:
+  - name: flake-analysis
+    image: quay.io/opendatahub/flakiness-tool:latest
+    commands: |
+      flakiness-tool run --config .flakiness.yaml
+```
+
+## Test Runner Skip Integration
+
+The quarantine JSON output (`hack/quarantine.json`) is a simple array of
+entries with a `quarantined` boolean. Any test runner can consume it.
+
+### Go (Ginkgo / testing)
+
+```go
+package e2e
+
+import (
+    "encoding/json"
+    "os"
+    "testing"
+)
+
+type QuarantineEntry struct {
+    Name        string `json:"name"`
+    Quarantined bool   `json:"quarantined"`
+}
+
+var quarantined map[string]bool
+
+func TestMain(m *testing.M) {
+    quarantined = loadQuarantine("hack/quarantine.json")
+    os.Exit(m.Run())
+}
+
+func loadQuarantine(path string) map[string]bool {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil
+    }
+    var entries []QuarantineEntry
+    if err := json.Unmarshal(data, &entries); err != nil {
+        return nil
+    }
+    m := make(map[string]bool)
+    for _, e := range entries {
+        if e.Quarantined {
+            m[e.Name] = true
+        }
+    }
+    return m
+}
+
+func TestExample(t *testing.T) {
+    if quarantined[t.Name()] {
+        t.Skip("quarantined: flaky test under investigation")
+    }
+    // ... test body ...
+}
+```
+
+### Ginkgo
+
+```go
+BeforeEach(func() {
+    if quarantined[CurrentSpecReport().FullText()] {
+        Skip("quarantined: flaky test under investigation")
+    }
+})
+```
+
+### pytest (Python)
+
+```python
+import json, pytest
+
+def pytest_collection_modifyitems(config, items):
+    try:
+        with open("hack/quarantine.json") as f:
+            entries = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    skip_names = {e["name"] for e in entries if e.get("quarantined")}
+    for item in items:
+        if item.name in skip_names:
+            item.add_marker(pytest.mark.skip(reason="quarantined"))
+```

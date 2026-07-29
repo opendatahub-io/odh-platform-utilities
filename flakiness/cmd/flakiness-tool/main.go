@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/opendatahub-io/odh-platform-utilities/flakiness"
+	"github.com/opendatahub-io/odh-platform-utilities/flakiness/jira"
 )
 
 func main() {
@@ -40,91 +41,123 @@ func run(configPath string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	ctx := context.Background()
+	var opts []flakiness.RunOption
 
-	gcs, err := flakiness.NewGCSClient(ctx, flakiness.WithAnonymous())
-	if err != nil {
-		return fmt.Errorf("creating GCS client: %w", err)
-	}
-	defer func() { _ = gcs.Close() }()
+	if cfg.Quarantine.ConfigPath != "" {
+		prior, loadErr := flakiness.LoadPriorEntries(cfg.Quarantine.ConfigPath)
+		if loadErr != nil {
+			return fmt.Errorf("loading prior quarantine entries: %w", loadErr)
+		}
 
-	store, err := flakiness.NewStore()
-	if err != nil {
-		return fmt.Errorf("creating store: %w", err)
-	}
-	defer func() { _ = store.Close() }()
-
-	result, err := scrape(ctx, cfg, gcs, store)
-	if err != nil {
-		return err
-	}
-
-	if result.TestsRecorded == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "no test results found")
-
-		return nil
-	}
-
-	entries, err := analyze(ctx, cfg, store)
-	if err != nil {
-		return err
-	}
-
-	entries = cfg.FilterExcluded(entries)
-
-	return writeQuarantineList(cfg, entries)
-}
-
-func scrape(ctx context.Context, cfg flakiness.Config, gcs *flakiness.GCSClient, store *flakiness.Store) (*flakiness.ScrapeResult, error) {
-	scraper := flakiness.NewScraper(gcs)
-	appender := store.Appender(ctx)
-
-	result, err := scraper.ScrapeAll(ctx, appender, cfg.GCS.Bucket, cfg.GCS.JobPrefixes)
-	if err != nil {
-		return nil, fmt.Errorf("scraping: %w", err)
-	}
-
-	if err := appender.Commit(); err != nil {
-		return nil, fmt.Errorf("committing metrics: %w", err)
-	}
-
-	_, _ = fmt.Fprintf(os.Stdout, "component: %s\n", cfg.Component)
-	_, _ = fmt.Fprintf(os.Stdout, "scraped: %d artifacts, %d tests, %d errors\n",
-		result.Artifacts, result.TestsRecorded, len(result.Errors))
-
-	for _, e := range result.Errors {
-		_, _ = fmt.Fprintf(os.Stderr, "  warning: %v\n", e)
-	}
-
-	return result, nil
-}
-
-func analyze(ctx context.Context, cfg flakiness.Config, store *flakiness.Store) ([]flakiness.QuarantineEntry, error) {
-	end := time.Now()
-	start := end.AddDate(0, 0, -cfg.Analysis.WindowDays)
-
-	opts := flakiness.ClassifyOptions{
-		MinRuns: cfg.Analysis.MinRuns,
-	}
-
-	report, err := flakiness.Analyze(ctx, store, start, end, opts)
-	if err != nil {
-		return nil, fmt.Errorf("analyzing: %w", err)
-	}
-
-	entries := report.QuarantineList(cfg.Analysis.Threshold)
-
-	quarantined := 0
-	for _, e := range entries {
-		if e.Quarantined {
-			quarantined++
+		if prior != nil {
+			opts = append(opts, flakiness.WithPriorEntries(prior))
 		}
 	}
 
-	_, _ = fmt.Fprintf(os.Stdout, "analysis: %d unhealthy tests, %d quarantined (threshold=%.2f, window=%dd)\n",
-		len(entries), quarantined, cfg.Analysis.Threshold, cfg.Analysis.WindowDays)
+	if cfg.Jira.APIURL != "" && cfg.Jira.TokenEnv != "" {
+		jiraCfg, jiraErr := jira.FromFlakinessConfig(cfg.Jira)
+		if jiraErr != nil {
+			return fmt.Errorf("configuring Jira: %w", jiraErr)
+		}
 
-	return entries, nil
+		if jiraCfg.TokenExpirySoon(time.Now()) {
+			_, _ = fmt.Fprintf(os.Stderr, "WARNING: Jira API token expires at %s (within %d day warning window)\n",
+				jiraCfg.TokenExpiresAt.Format(time.RFC3339), jiraCfg.TokenExpiryWarningDays)
+		}
+
+		jiraClient, jiraErr := jira.NewClient(jiraCfg, nil)
+		if jiraErr != nil {
+			return fmt.Errorf("creating Jira client: %w", jiraErr)
+		}
+
+		opts = append(opts, flakiness.WithJiraClient(jiraClient))
+	}
+
+	result, err := flakiness.Run(context.Background(), cfg, opts...)
+	if err != nil {
+		return err
+	}
+
+	printSummary(result)
+
+	if result.Scrape.TestsRecorded == 0 {
+		return nil
+	}
+
+	return writeQuarantineList(cfg, result.AllEntries)
+}
+
+func printSummary(result *flakiness.Result) {
+	_, _ = fmt.Fprintf(os.Stdout, "component: %s\n", result.Component)
+	_, _ = fmt.Fprintf(os.Stdout, "scraped: %d artifacts, %d tests, %d errors\n",
+		result.Scrape.Artifacts, result.Scrape.TestsRecorded, len(result.Scrape.Errors))
+
+	for _, e := range result.Scrape.Errors {
+		_, _ = fmt.Fprintf(os.Stderr, "  warning: %v\n", e)
+	}
+
+	for _, e := range result.JiraErrors {
+		_, _ = fmt.Fprintf(os.Stderr, "  jira warning: %v\n", e)
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "quarantined: %d total, %d new, %d removed\n",
+		len(result.QuarantinedTests), len(result.NewlyQuarantined), len(result.Unquarantined))
+
+	for _, e := range result.NewlyQuarantined {
+		_, _ = fmt.Fprintf(os.Stdout, "  + %s (%.1f%% flake rate, %s)\n",
+			e.Name, e.FlakeRate*100, e.JiraKey)
+	}
+
+	for _, e := range result.Unquarantined {
+		_, _ = fmt.Fprintf(os.Stdout, "  - %s (Jira %s resolved)\n",
+			e.Name, e.JiraKey)
+	}
+
+	printBudgetReport(result.Budget)
+}
+
+func printBudgetReport(report *flakiness.BudgetReport) {
+	if report == nil {
+		return
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "\ntimeout budget analysis:\n")
+
+	if report.Pipeline != nil {
+		_, _ = fmt.Fprintf(os.Stdout, "  pipeline: %s sum-of-tests / %s timeout (%.1fx)\n",
+			report.Pipeline.ActualDuration.Truncate(time.Second),
+			report.Pipeline.ConfiguredTimeout.Truncate(time.Second),
+			report.Pipeline.Utilisation)
+	}
+
+	for _, s := range report.Suites {
+		_, _ = fmt.Fprintf(os.Stdout, "  suite %s: %s sum-of-tests / %s timeout (%.1fx)\n",
+			s.Name,
+			s.ActualDuration.Truncate(time.Second),
+			s.ConfiguredTimeout.Truncate(time.Second),
+			s.Utilisation)
+	}
+
+	if len(report.NearTimeout) > 0 {
+		_, _ = fmt.Fprintf(os.Stdout, "  near-timeout tests:\n")
+
+		for _, t := range report.NearTimeout {
+			_, _ = fmt.Fprintf(os.Stdout, "    %s: P95=%s, timeout=%s (%.0f%%)\n",
+				t.Name, t.P95.Truncate(time.Millisecond), t.Timeout, t.Utilisation*100)
+		}
+	}
+
+	if len(report.Recommendations) > 0 {
+		_, _ = fmt.Fprintf(os.Stdout, "  recommendations:\n")
+
+		for _, r := range report.Recommendations {
+			_, _ = fmt.Fprintf(os.Stdout, "    %s %s: %s -> %s (%s)\n",
+				r.Action, r.Name,
+				r.CurrentTimeout.Truncate(time.Millisecond),
+				r.SuggestedTimeout.Truncate(time.Millisecond),
+				r.Reason)
+		}
+	}
 }
 
 func writeQuarantineList(cfg flakiness.Config, entries []flakiness.QuarantineEntry) error {
