@@ -15,11 +15,12 @@ import (
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "run" {
-		log.Fatalf("Usage: %s run --config <path>", os.Args[0])
+		log.Fatalf("Usage: %s run --config <path> [--push-back]", os.Args[0])
 	}
 
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 	configPath := runCmd.String("config", "", "path to .flakiness.yaml config file")
+	pushBackFlag := runCmd.Bool("push-back", false, "commit and push updated quarantine file back to the repo (requires GITHUB_TOKEN)")
 
 	if err := runCmd.Parse(os.Args[2:]); err != nil {
 		log.Fatal(err)
@@ -30,12 +31,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(*configPath); err != nil {
+	if err := run(*configPath, *pushBackFlag); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(configPath string) error {
+func run(configPath string, pushBackEnabled bool) error {
 	cfg, err := flakiness.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -84,7 +85,20 @@ func run(configPath string) error {
 		return nil
 	}
 
-	return writeQuarantineList(cfg, result.AllEntries)
+	if err := writeQuarantineList(cfg, result.AllEntries); err != nil {
+		return err
+	}
+
+	if pushBackEnabled && cfg.Quarantine.ConfigPath != "" {
+		pushCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		if err := pushBack(pushCtx, cfg.Quarantine.ConfigPath); err != nil {
+			return fmt.Errorf("push-back: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func printSummary(result *flakiness.Result) {

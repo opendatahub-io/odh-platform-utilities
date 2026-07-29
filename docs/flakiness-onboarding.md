@@ -47,27 +47,83 @@ Find your GCS job prefixes by browsing
 `https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/test-platform-results/`
 and locating your component's periodic and presubmit job directories.
 
-## Step 2: Add the Prow post step
+## Step 2: Add the Prow periodic job
 
-In your `openshift/release` job configuration, add the flake analysis step:
+Create a periodic job in your `openshift/release` configuration that runs
+the flakiness analysis and pushes updated quarantine state back to your repo.
 
 ```yaml
-post:
-  - name: flake-analysis
-    image: quay.io/opendatahub/flakiness-tool:latest
-    commands: |
-      flakiness-tool run --config .flakiness.yaml
-    env:
-      - name: QUARANTINE_JIRA_API_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: quarantine-jira-token
-            key: token
-      - name: FLAKINESS_JIRA_USER_EMAIL
-        valueFrom:
-          secretKeyRef:
-            name: quarantine-jira-token
-            key: email
+periodics:
+  - name: periodic-flake-analysis-<component>
+    interval: 6h
+    decorate: true
+    extra_refs:
+      - org: opendatahub-io
+        repo: <your-repo>
+        base_ref: main
+    spec:
+      containers:
+        - image: quay.io/opendatahub/flakiness-tool:v0.1.0
+          command:
+            - flakiness-tool
+          args:
+            - run
+            - --config=.flakiness.yaml
+            - --push-back
+          env:
+            - name: QUARANTINE_JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: quarantine-jira-token
+                  key: token
+            - name: FLAKINESS_JIRA_USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: quarantine-jira-token
+                  key: email
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: quarantine-github-token
+                  key: token
+```
+
+The `--push-back` flag causes the tool to commit and push the updated
+`quarantine.json` back to your repository after a successful run. It requires
+the `GITHUB_TOKEN` env var (a GitHub App installation token or PAT with
+`contents: write` scope).
+
+If you don't need push-back (e.g. you prefer manual PR-based updates), omit
+`--push-back` and the `GITHUB_TOKEN` secret:
+
+```yaml
+periodics:
+  - name: periodic-flake-analysis-<component>
+    interval: 6h
+    decorate: true
+    extra_refs:
+      - org: opendatahub-io
+        repo: <your-repo>
+        base_ref: main
+    spec:
+      containers:
+        - image: quay.io/opendatahub/flakiness-tool:v0.1.0
+          command:
+            - flakiness-tool
+          args:
+            - run
+            - --config=.flakiness.yaml
+          env:
+            - name: QUARANTINE_JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: quarantine-jira-token
+                  key: token
+            - name: FLAKINESS_JIRA_USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: quarantine-jira-token
+                  key: email
 ```
 
 ## Step 3: Commit an initial quarantine file
@@ -148,14 +204,19 @@ result, err := flakiness.Run(ctx, cfg,
 flakiness-tool run --config .flakiness.yaml
 ```
 
-### Path 3: Container image (Prow post step)
+### Path 3: Container image (Prow periodic job)
 
-```yaml
-post:
-  - name: flake-analysis
-    image: quay.io/opendatahub/flakiness-tool:latest
-    commands: |
-      flakiness-tool run --config .flakiness.yaml
+```bash
+# One-shot run (no push-back):
+docker run --rm -v "$PWD:/work" -w /work \
+  quay.io/opendatahub/flakiness-tool:v0.1.0 \
+  run --config .flakiness.yaml
+
+# With push-back (commits result to repo):
+docker run --rm -v "$PWD:/work" -w /work \
+  -e GITHUB_TOKEN="$GITHUB_TOKEN" \
+  quay.io/opendatahub/flakiness-tool:v0.1.0 \
+  run --config .flakiness.yaml --push-back
 ```
 
 ## Test Runner Skip Integration
