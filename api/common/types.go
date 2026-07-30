@@ -51,8 +51,8 @@ const (
 
 // --- Condition Type Constants ---
 
-// ConditionType is a typed string for condition type identifiers, providing
-// compile-time safety against typos in condition lookups.
+// ConditionType is a typed string for condition type identifiers. In practice
+// it is limited to a small set of condition types defined by modules.
 type ConditionType string
 
 const (
