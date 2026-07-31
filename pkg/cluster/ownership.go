@@ -12,11 +12,6 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/resources"
 )
 
-// Deprecated: EnqueueOwner was renamed to [EnqueueByOwnerAnnotation]. Use [EnqueueByOwnerAnnotation] instead.
-func EnqueueOwner() handler.MapFunc {
-	return EnqueueByOwnerAnnotation()
-}
-
 // EnqueueByOwnerAnnotation returns a handler.MapFunc that resolves the owner CR
 // from the ownership annotations stamped by [WithOwnerAnnotations]. The returned
 // function reads [annotations.InstanceName] and [annotations.InstanceNamespace]
