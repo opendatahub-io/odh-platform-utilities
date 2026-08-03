@@ -63,6 +63,10 @@ const (
 	// ConditionTypeProvisioningSucceeded reflects the result of manifest
 	// application. The orchestrator reads this for status aggregation.
 	ConditionTypeProvisioningSucceeded ConditionType = "ProvisioningSucceeded"
+
+	// ConditionTypeDegraded indicates the module is functioning but impaired.
+	// The orchestrator reports this in cluster-wide health.
+	ConditionTypeDegraded ConditionType = "Degraded"
 )
 
 // --- Phase Constants ---
