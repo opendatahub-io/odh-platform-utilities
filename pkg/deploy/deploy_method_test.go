@@ -579,10 +579,10 @@ func TestDeployNonExcludedResourceStillGetsOwnerReference(t *testing.T) {
 	g.Expect(*refs[0].Controller).Should(BeTrue())
 }
 
-// TestDeployLegacyOwnerIsReplaced verifies that WithLegacyOwners causes the
+// TestDeployLegacyOwnerReplaced verifies that WithLegacyOwners causes the
 // deployer to remove a matching stale owner reference from the live object
 // before applying the new controller owner, for both deploy modes.
-func TestDeployLegacyOwnerIsReplaced(t *testing.T) {
+func TestDeployLegacyOwnerReplaced(t *testing.T) {
 	t.Parallel()
 
 	legacyGVK := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
@@ -616,9 +616,7 @@ func TestDeployLegacyOwnerIsReplaced(t *testing.T) {
 
 			newOwner := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "new-owner",
-					Namespace: "default",
-					UID:       "new-owner-uid",
+					Name: "new-owner", Namespace: "default", UID: "new-owner-uid",
 				},
 			}
 
@@ -647,9 +645,9 @@ func TestDeployLegacyOwnerIsReplaced(t *testing.T) {
 	}
 }
 
-// TestDeployNonLegacyOwnerIsPreserved verifies that without WithLegacyOwners
+// TestDeployNonLegacyOwnerPreserved verifies that without WithLegacyOwners
 // an existing owner reference on a live resource is left untouched.
-func TestDeployNonLegacyOwnerIsPreserved(t *testing.T) {
+func TestDeployNonLegacyOwnerPreserved(t *testing.T) {
 	t.Parallel()
 
 	modes := []struct {
@@ -681,9 +679,7 @@ func TestDeployNonLegacyOwnerIsPreserved(t *testing.T) {
 
 			newOwner := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "new-owner",
-					Namespace: "default",
-					UID:       "new-owner-uid",
+					Name: "new-owner", Namespace: "default", UID: "new-owner-uid",
 				},
 			}
 
@@ -704,11 +700,13 @@ func TestDeployNonLegacyOwnerIsPreserved(t *testing.T) {
 			g.Expect(err).ShouldNot(HaveOccurred())
 
 			refs := result.GetOwnerReferences()
+
 			uids := make([]string, 0, len(refs))
 			for _, r := range refs {
 				uids = append(uids, string(r.UID))
 			}
-			g.Expect(uids).Should(ContainElement("existing-uid"), "existing owner ref should be preserved without WithLegacyOwners")
+
+			g.Expect(uids).Should(ContainElement("existing-uid"), "existing owner ref should be preserved")
 		})
 	}
 }
