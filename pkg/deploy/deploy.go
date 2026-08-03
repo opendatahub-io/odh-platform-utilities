@@ -88,11 +88,11 @@ type Deployer struct {
 	annotations          map[string]string
 	mergeStrategies      map[schema.GroupVersionKind]MergeFn
 	excludeFromOwnership map[schema.GroupVersionKind]struct{}
-	legacyOwners         []schema.GroupVersionKind
 	fieldOwner           string
 	crdFieldOwner        string
 	managedKey           string
 	mode                 Mode
+	legacyOwners         []schema.GroupVersionKind
 }
 
 // Option configures a Deployer.
@@ -516,7 +516,8 @@ func (d *Deployer) applyResource(
 		obj.SetOwnerReferences(nil)
 
 		if current != nil && len(d.legacyOwners) > 0 {
-			if err := d.removeLegacyOwnerRefs(ctx, input.Client, current); err != nil {
+			err := d.removeLegacyOwnerRefs(ctx, input.Client, current)
+			if err != nil {
 				return nil, err
 			}
 		}
