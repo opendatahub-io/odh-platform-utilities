@@ -578,3 +578,137 @@ func TestDeployNonExcludedResourceStillGetsOwnerReference(t *testing.T) {
 	g.Expect(refs[0].Controller).ShouldNot(BeNil())
 	g.Expect(*refs[0].Controller).Should(BeTrue())
 }
+
+// TestDeployLegacyOwnerIsReplaced verifies that WithLegacyOwners causes the
+// deployer to remove a matching stale owner reference from the live object
+// before applying the new controller owner, for both deploy modes.
+func TestDeployLegacyOwnerIsReplaced(t *testing.T) {
+	t.Parallel()
+
+	legacyGVK := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+
+	modes := []struct {
+		name string
+		mode deploy.Mode
+	}{
+		{"Patch", deploy.ModePatch},
+		{"SSA", deploy.ModeSSA},
+	}
+
+	for _, tc := range modes {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			scheme := newDeployScheme(g)
+
+			legacyRef := metav1.OwnerReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "legacy-owner",
+				UID:        "legacy-uid",
+			}
+
+			existing := makeObj("v1", "ConfigMap", "default", "shared-cm")
+			existing.SetOwnerReferences([]metav1.OwnerReference{legacyRef})
+
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&existing).Build()
+
+			newOwner := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-owner",
+					Namespace: "default",
+					UID:       "new-owner-uid",
+				},
+			}
+
+			cm := makeObj("v1", "ConfigMap", "default", "shared-cm")
+
+			d := deploy.NewDeployer(
+				deploy.WithMode(tc.mode),
+				deploy.WithLegacyOwners(legacyGVK),
+			)
+			err := d.Deploy(context.Background(), deploy.DeployInput{
+				Client:    cli,
+				Owner:     newOwner,
+				Resources: []unstructured.Unstructured{cm},
+			})
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			result := &unstructured.Unstructured{}
+			result.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"})
+			err = cli.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "shared-cm"}, result)
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			refs := result.GetOwnerReferences()
+			g.Expect(refs).Should(HaveLen(1), "legacy owner ref should be replaced, not merged")
+			g.Expect(string(refs[0].UID)).Should(Equal("new-owner-uid"))
+		})
+	}
+}
+
+// TestDeployNonLegacyOwnerIsPreserved verifies that without WithLegacyOwners
+// an existing owner reference on a live resource is left untouched.
+func TestDeployNonLegacyOwnerIsPreserved(t *testing.T) {
+	t.Parallel()
+
+	modes := []struct {
+		name string
+		mode deploy.Mode
+	}{
+		{"Patch", deploy.ModePatch},
+		{"SSA", deploy.ModeSSA},
+	}
+
+	for _, tc := range modes {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			scheme := newDeployScheme(g)
+
+			existingRef := metav1.OwnerReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "existing-owner",
+				UID:        "existing-uid",
+			}
+
+			existing := makeObj("v1", "ConfigMap", "default", "shared-cm")
+			existing.SetOwnerReferences([]metav1.OwnerReference{existingRef})
+
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&existing).Build()
+
+			newOwner := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-owner",
+					Namespace: "default",
+					UID:       "new-owner-uid",
+				},
+			}
+
+			cm := makeObj("v1", "ConfigMap", "default", "shared-cm")
+
+			// No WithLegacyOwners — existing ref must survive.
+			d := deploy.NewDeployer(deploy.WithMode(tc.mode))
+			err := d.Deploy(context.Background(), deploy.DeployInput{
+				Client:    cli,
+				Owner:     newOwner,
+				Resources: []unstructured.Unstructured{cm},
+			})
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			result := &unstructured.Unstructured{}
+			result.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"})
+			err = cli.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "shared-cm"}, result)
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			refs := result.GetOwnerReferences()
+			uids := make([]string, 0, len(refs))
+			for _, r := range refs {
+				uids = append(uids, string(r.UID))
+			}
+			g.Expect(uids).Should(ContainElement("existing-uid"), "existing owner ref should be preserved without WithLegacyOwners")
+		})
+	}
+}

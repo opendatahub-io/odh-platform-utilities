@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -87,6 +88,7 @@ type Deployer struct {
 	annotations          map[string]string
 	mergeStrategies      map[schema.GroupVersionKind]MergeFn
 	excludeFromOwnership map[schema.GroupVersionKind]struct{}
+	legacyOwners         []schema.GroupVersionKind
 	fieldOwner           string
 	crdFieldOwner        string
 	managedKey           string
@@ -223,6 +225,18 @@ func WithExcludeFromOwnership(gvks ...schema.GroupVersionKind) Option {
 		for _, gvk := range gvks {
 			d.excludeFromOwnership[gvk] = struct{}{}
 		}
+	}
+}
+
+// WithLegacyOwners registers GVKs of owner references that the deployer is
+// allowed to replace. When a live resource has an owner ref whose GVK matches
+// one of the provided values, the deployer removes it via Update before setting
+// the new controller owner. This is necessary because ownerReferences is a
+// merge-by-uid list in the Kubernetes API, so SSA alone cannot remove an entry
+// written by a different field manager.
+func WithLegacyOwners(gvks ...schema.GroupVersionKind) Option {
+	return func(d *Deployer) {
+		d.legacyOwners = append(d.legacyOwners, gvks...)
 	}
 }
 
@@ -455,6 +469,31 @@ func (d *Deployer) isExcludedFromOwnership(gvk schema.GroupVersionKind) bool {
 	return found
 }
 
+// removeLegacyOwnerRefs removes owner references on current whose GVK is listed
+// in d.legacyOwners. It delegates to resources.RemoveOwnerReferences, which
+// skips the Update call when no matching refs are found.
+func (d *Deployer) removeLegacyOwnerRefs(
+	ctx context.Context,
+	cli client.Client,
+	current *unstructured.Unstructured,
+) error {
+	legacySet := make(map[schema.GroupVersionKind]struct{}, len(d.legacyOwners))
+	for _, gvk := range d.legacyOwners {
+		legacySet[gvk] = struct{}{}
+	}
+
+	return resources.RemoveOwnerReferences(ctx, cli, current, func(ref metav1.OwnerReference) bool {
+		av, err := schema.ParseGroupVersion(ref.APIVersion)
+		if err != nil {
+			return false
+		}
+
+		_, isLegacy := legacySet[schema.GroupVersionKind{Group: av.Group, Version: av.Version, Kind: ref.Kind}]
+
+		return isLegacy
+	})
+}
+
 func (d *Deployer) applyResource(
 	ctx context.Context,
 	input DeployInput,
@@ -475,6 +514,12 @@ func (d *Deployer) applyResource(
 
 	if input.Owner != nil && !d.isExcludedFromOwnership(obj.GroupVersionKind()) {
 		obj.SetOwnerReferences(nil)
+
+		if current != nil && len(d.legacyOwners) > 0 {
+			if err := d.removeLegacyOwnerRefs(ctx, input.Client, current); err != nil {
+				return nil, err
+			}
+		}
 
 		err := ctrl.SetControllerReference(input.Owner, obj, input.Client.Scheme())
 		if err != nil {
