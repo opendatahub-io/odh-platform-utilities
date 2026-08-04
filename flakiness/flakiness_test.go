@@ -55,17 +55,17 @@ func TestRun_BasicPipeline(t *testing.T) {
 
 		var xml []byte
 		if i < 7 {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestStable" time="5.0"/>
   <testcase name="TestFlaky" time="3.0">
     <failure message="intermittent"/>
   </testcase>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		} else {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestStable" time="5.0"/>
   <testcase name="TestFlaky" time="3.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		}
 
 		client.addObject("ci-bucket", path, xml)
@@ -122,15 +122,15 @@ func TestRun_JiraIntegration(t *testing.T) {
 
 		var xml []byte
 		if i%3 == 0 {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestFlakyJira" time="2.0">
     <failure message="oops"/>
   </testcase>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		} else {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestFlakyJira" time="2.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		}
 
 		client.addObject("bucket", path, xml)
@@ -184,26 +184,26 @@ func TestRun_ComponentIsolation(t *testing.T) {
 
 		var xmlA []byte
 		if i%2 == 0 {
-			xmlA = []byte(fmt.Sprintf(
+			xmlA = fmt.Appendf(nil,
 				`<testsuite name="a" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestOnlyInA" time="1.0">
     <failure message="flaky"/>
   </testcase>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		} else {
-			xmlA = []byte(fmt.Sprintf(
+			xmlA = fmt.Appendf(nil,
 				`<testsuite name="a" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestOnlyInA" time="1.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		}
 
 		client.addObject("bucket", pathA, xmlA)
 
 		pathB := fmt.Sprintf("logs/comp-b/%s/artifacts/junit.xml", buildID)
-		client.addObject("bucket", pathB, []byte(fmt.Sprintf(
+		client.addObject("bucket", pathB, fmt.Appendf(nil,
 			`<testsuite name="b" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestOnlyInB" time="1.0"/>
-</testsuite>`, i+1)))
+</testsuite>`, i+1))
 	}
 
 	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
@@ -270,10 +270,10 @@ func TestRun_Unquarantine(t *testing.T) {
 	for i := range 10 {
 		buildID := strconv.Itoa(400 + i)
 		path := fmt.Sprintf("logs/job/%s/artifacts/junit.xml", buildID)
-		client.addObject("bucket", path, []byte(fmt.Sprintf(
+		client.addObject("bucket", path, fmt.Appendf(nil,
 			`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestNowFixed" time="1.0"/>
-</testsuite>`, i+1)))
+</testsuite>`, i+1))
 	}
 
 	priorEntries := []flakiness.QuarantineEntry{
@@ -359,12 +359,12 @@ func TestRun_ExcludePatterns(t *testing.T) {
 	for i := range 10 {
 		buildID := strconv.Itoa(500 + i)
 		path := fmt.Sprintf("logs/job/%s/artifacts/junit.xml", buildID)
-		client.addObject("bucket", path, []byte(fmt.Sprintf(
+		client.addObject("bucket", path, fmt.Appendf(nil,
 			`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestKnownFlaky" time="1.0">
     <failure message="known"/>
   </testcase>
-</testsuite>`, i+1)))
+</testsuite>`, i+1))
 	}
 
 	cfg := flakiness.Config{
@@ -411,15 +411,15 @@ func TestRun_PriorEntriesPreserveJiraKey(t *testing.T) {
 
 		var xml []byte
 		if i%2 == 0 {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestStillFlaky" time="1.0">
     <failure message="still flaky"/>
   </testcase>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		} else {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestStillFlaky" time="1.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		}
 
 		client.addObject("bucket", path, xml)
@@ -530,15 +530,15 @@ func TestRun_AutoQuarantineDisabled(t *testing.T) {
 
 		var xml []byte
 		if i%2 == 0 {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestFlakyButNoAction" time="1.0">
     <failure message="flaky"/>
   </testcase>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		} else {
-			xml = []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+			xml = fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestFlakyButNoAction" time="1.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		}
 
 		client.addObject("bucket", path, xml)
@@ -584,10 +584,10 @@ func TestRun_TimeoutBudgetAnalysis(t *testing.T) {
 	for i := range 10 {
 		buildID := strconv.Itoa(800 + i)
 		path := fmt.Sprintf("logs/budget-job/%s/artifacts/junit.xml", buildID)
-		xml := []byte(fmt.Sprintf(`<testsuite name="e2e-predictor" timestamp="2026-06-%02dT12:00:00Z">
+		xml := fmt.Appendf(nil, `<testsuite name="e2e-predictor" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestSlowPredictor" time="250.0"/>
   <testcase name="TestFastPredictor" time="10.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		client.addObject("bucket", path, xml)
 	}
 
@@ -634,9 +634,9 @@ func TestRun_NoBudgetWhenUnconfigured(t *testing.T) {
 	for i := range 5 {
 		buildID := strconv.Itoa(900 + i)
 		path := fmt.Sprintf("logs/no-budget/%s/artifacts/junit.xml", buildID)
-		xml := []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+		xml := fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestNormal" time="1.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		client.addObject("bucket", path, xml)
 	}
 
@@ -674,9 +674,9 @@ func TestRun_TokenExpiryWarning(t *testing.T) {
 	for i := range 5 {
 		buildID := strconv.Itoa(1000 + i)
 		path := fmt.Sprintf("logs/token-test/%s/artifacts/junit.xml", buildID)
-		xml := []byte(fmt.Sprintf(`<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
+		xml := fmt.Appendf(nil, `<testsuite name="e2e" timestamp="2026-06-%02dT12:00:00Z">
   <testcase name="TestOK" time="1.0"/>
-</testsuite>`, i+1))
+</testsuite>`, i+1)
 		client.addObject("bucket", path, xml)
 	}
 

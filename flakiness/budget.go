@@ -279,13 +279,9 @@ func computeRecommendations(
 			})
 
 		case utilisation <= lowerThreshold && rt.Samples >= 5:
-			suggested := time.Duration(
-				float64(rt.P99) * headroomMultiplier,
-			)
-
-			if suggested < time.Second {
-				suggested = time.Second
-			}
+			suggested := max(time.Duration(
+				float64(rt.P99)*headroomMultiplier,
+			), time.Second)
 
 			results = append(results, TimeoutRecommendation{
 				Name:             rt.Name,

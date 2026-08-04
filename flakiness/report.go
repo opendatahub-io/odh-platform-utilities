@@ -25,7 +25,7 @@ type TestClassification struct {
 	RegressionSHA  string         `json:"regressionSha,omitempty"`
 	RegressionPR   string         `json:"regressionPr,omitempty"`
 	LastSeen       time.Time      `json:"lastSeen"`
-	LastFailed     time.Time      `json:"lastFailed,omitempty"`
+	LastFailed     time.Time      `json:"lastFailed"`
 }
 
 // QuarantineEntry is a single entry in the quarantine JSON output.
@@ -41,7 +41,7 @@ type QuarantineEntry struct {
 	RegressionSHA  string         `json:"regressionSha,omitempty"`
 	RegressionPR   string         `json:"regressionPr,omitempty"`
 	LastSeen       time.Time      `json:"lastSeen"`
-	LastFailed     time.Time      `json:"lastFailed,omitempty"`
+	LastFailed     time.Time      `json:"lastFailed"`
 	JiraKey        string         `json:"jiraKey,omitempty"`
 }
 

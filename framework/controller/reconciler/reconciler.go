@@ -437,6 +437,8 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	if shouldStop {
 		l.Info("Pre-apply check not met, stopping reconciliation")
 
+		requeueAfter = 30 * time.Second
+
 		rr.Conditions.MarkFalse(
 			r.provisioningConditionType,
 			conditions.WithReason(r.preApplyFailedReason),
