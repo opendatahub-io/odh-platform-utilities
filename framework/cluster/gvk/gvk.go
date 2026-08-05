@@ -169,6 +169,12 @@ var (
 		Kind:    "OdhDashboardConfig",
 	}
 
+	DataScienceCluster = schema.GroupVersionKind{
+		Group:   "datasciencecluster.opendatahub.io",
+		Version: "v2",
+		Kind:    "DataScienceCluster",
+	}
+
 	Tenant = schema.GroupVersionKind{
 		Group:   "maas.opendatahub.io",
 		Version: "v1alpha1",

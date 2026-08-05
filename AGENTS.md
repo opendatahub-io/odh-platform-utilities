@@ -31,20 +31,22 @@ The ODH platform follows a hub-and-spoke architecture:
 This library is the shared dependency that both sides import.
 
 For architectural context see:
-- [Onboarding Guide for ODH Operator Modules](https://docs.google.com/document/d/1FeJk5mMPGMGMNqMAiGn0-cTKcNxblDYAkhU4DOmcpns)
+- [Integration Test Harness](docs/integration-testing.md)
 - [ODH Operator Evolution](https://docs.google.com/document/d/1mOuXIKkqbh3rS35g4JdWTj5HvjQ_a-7u7HBwBIqlIpI)
+- [Onboarding Guide](https://docs.google.com/document/d/1FeJk5mMPGMGMNqMAiGn0-cTKcNxblDYAkhU4DOmcpns)
 
 ## Repository Structure
 
-This repository contains **two Go modules**:
+This repository contains **three Go modules**:
 
 | Module | Path | Purpose |
 |--------|------|---------|
 | `github.com/opendatahub-io/odh-platform-utilities` | `/` (root) | Low-level, dependency-light utilities |
 | `github.com/opendatahub-io/odh-platform-utilities/framework` | `framework/` | Opinionated controller framework |
+| `github.com/opendatahub-io/odh-platform-utilities/framework/testing` | `framework/testing/` | Live-cluster integration PR gate |
 
-The `framework/` module depends on the root module (via `replace` directive for
-local development).
+The `framework/` and `framework/testing/` modules depend on the root module
+(via `replace` for local development).
 
 ### Root Module
 
@@ -202,6 +204,9 @@ framework/
     test/
       matchers/                 Gomega matchers and jq-based assertions
                                 for integration tests.
+  testing/                      Nested Go module (framework/testing).
+    integration/                Live-cluster PR gate ([Run]). See
+                                docs/integration-testing.md.
 ```
 
 #### Key Framework Concepts
@@ -282,6 +287,51 @@ make verify-tidy   # Verify go.mod/go.sum are tidy (CI check)
 make verify-fmt       # Verify code formatting (CI check)
 make verify-generate  # Verify generated deepcopy files are up to date (CI check)
 ```
+
+## Development Principles
+
+### Reuse Before Writing
+
+**This is a utilities library — search before you write.** Before creating any
+new helper, constant, or utility function:
+
+1. **Search the codebase** for existing implementations. Common locations:
+   - `api/common/` — condition types, phases, platform contract types
+   - `pkg/resources/` — root-module helpers: `Decode`, `Hash`, `SortByApplyOrder`, `Resource`
+   - `framework/resources/` — framework helpers: `Apply`, `GvkToUnstructured`, `Source`, `EnsureGroupVersionKind`
+   - `framework/cluster/gvk/` — well-known GVK constants
+   - `framework/controller/conditions/` — `IsStatusConditionTrue`, `FindStatusCondition`
+
+2. **Check if it belongs in a shared location.** If you need a GVK constant,
+   add it to `framework/cluster/gvk/gvk.go`. If you need a condition type,
+   check `api/common/types.go`. Don't define locals that duplicate shared code.
+
+3. **Convert types to use existing utilities.** Example: to check conditions on
+   an `unstructured.Unstructured`, convert to `api.Status` and use
+   `conditions.IsStatusConditionTrue()` rather than writing a new function:
+   ```go
+   statusRaw, found, err := unstructured.NestedMap(u.Object, "status")
+   if err != nil || !found {
+       return // status not yet populated
+   }
+   var status api.Status
+   if err := runtime.DefaultUnstructuredConverter.FromUnstructured(statusRaw, &status); err != nil {
+       return
+   }
+   conditions.IsStatusConditionTrue(&status, string(common.ConditionTypeReady))
+   ```
+
+### Type-Driven Design
+
+Make invalid states unrepresentable through types, not runtime validation:
+
+- **Required params as positional args** — compiler enforces presence
+- **Functional options for optional config** — clear API, sensible defaults
+- **Strong types over primitives** — `Source` interface over `string` for paths/URLs
+- **Constants over magic strings** — `common.ConditionTypeReady` over `"Ready"`
+
+When types can't catch a problem (e.g., file existence), front-load validation
+at logical boundaries and fail fast with clear error messages.
 
 ## Coding Conventions
 
