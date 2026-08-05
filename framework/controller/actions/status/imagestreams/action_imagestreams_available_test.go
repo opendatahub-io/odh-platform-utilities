@@ -123,7 +123,7 @@ func TestImageStreamsNoImageStreams(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -169,7 +169,7 @@ func TestImageStreamsNoMatchErrorVanillaK8s(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -202,7 +202,7 @@ func TestImageStreamsAllHealthy(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -245,7 +245,7 @@ func TestImageStreamsAllFailed(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -294,7 +294,7 @@ func TestImageStreamsMixedHealth(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -333,7 +333,7 @@ func TestImageStreamsFreshDeploy(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -375,7 +375,7 @@ func TestImageStreamsImportSuccessTrue(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -419,7 +419,7 @@ func TestImageStreamsMultipleImageStreams(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -460,7 +460,7 @@ func TestImageStreamsIgnoresDifferentLabels(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -510,7 +510,7 @@ func TestImageStreamsInNamespace(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -552,7 +552,7 @@ func TestImageStreamsMessageTruncation(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -597,7 +597,7 @@ func TestImageStreamsMaxFailedTagsCap(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -632,7 +632,7 @@ func TestImageStreamsMissingNamespaceFn(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(fwapi.ConditionTypeReady))
+	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
 
 	err := action(ctx, &rr)
 	g.Expect(err).Should(HaveOccurred())
