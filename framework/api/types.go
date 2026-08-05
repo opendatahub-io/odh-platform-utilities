@@ -16,7 +16,6 @@ const (
 	ConditionReasonError = "Error"
 )
 
-// Condition represents an observation of an object's state.
 // +kubebuilder:object:generate=true
 type Condition struct {
 	// type of condition in CamelCase or in foo.example.com/CamelCase.
@@ -34,12 +33,18 @@ type Condition struct {
 	Status metav1.ConditionStatus `json:"status"`
 
 	// observedGeneration represents the .metadata.generation that the condition was set based upon.
+	// For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration
+	// is 9, the condition is out of date with respect to the current state of the instance.
+	//
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Minimum=0
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// lastTransitionTime is the last time the condition transitioned from one status to another.
+	// This should be when the underlying condition changed.
+	// If that is not known, then using the time when the API field changed is acceptable.
+	//
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Type=string
@@ -47,6 +52,8 @@ type Condition struct {
 	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
 
 	// reason contains a programmatic identifier indicating the reason for the condition's last transition.
+	// The value should be a CamelCase string.
+	//
 	// +optional
 	// +kubebuilder:validation:Optional
 	Reason string `json:"reason,omitempty"`
@@ -63,7 +70,7 @@ type Condition struct {
 	Severity ConditionSeverity `json:"severity,omitempty"`
 
 	// The last time we got an update on a given condition, this should not be set and is
-	// present only for backward compatibility reasons.
+	// present only for backward compatibility reasons
 	// +optional
 	// +kubebuilder:validation:Optional
 	LastHeartbeatTime *metav1.Time `json:"lastHeartbeatTime,omitempty"`
