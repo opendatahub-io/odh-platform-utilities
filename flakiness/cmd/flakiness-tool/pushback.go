@@ -119,14 +119,12 @@ func gitRemoteURL(ctx context.Context) (string, error) {
 // x-access-token. The password is supplied via GIT_ASKPASS at runtime,
 // keeping the token out of process argv (/proc/*/cmdline).
 func httpsRemote(remote string) (string, error) {
-	if strings.HasPrefix(remote, "git@github.com:") {
-		repo := strings.TrimPrefix(remote, "git@github.com:")
+	if repo, ok := strings.CutPrefix(remote, "git@github.com:"); ok {
 		repo = strings.TrimSuffix(repo, ".git")
 		return fmt.Sprintf("https://x-access-token@github.com/%s.git", repo), nil
 	}
 
-	if strings.HasPrefix(remote, "https://github.com/") {
-		repo := strings.TrimPrefix(remote, "https://github.com/")
+	if repo, ok := strings.CutPrefix(remote, "https://github.com/"); ok {
 		repo = strings.TrimSuffix(repo, ".git")
 		return fmt.Sprintf("https://x-access-token@github.com/%s.git", repo), nil
 	}

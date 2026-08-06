@@ -1,0 +1,426 @@
+package rules_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	gTypes "github.com/onsi/gomega/types"
+	authorizationv1 "k8s.io/api/authorization/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/opendatahub-io/odh-platform-utilities/framework/resources"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/rules"
+
+	. "github.com/onsi/gomega"
+)
+
+func allVerb() []string {
+	return []string{"delete", "create", "get", "list", "patch"}
+}
+
+func anyRule() authorizationv1.ResourceRule {
+	return authorizationv1.ResourceRule{
+		Verbs:     []string{rules.VerbAny},
+		APIGroups: []string{rules.VerbAny},
+		Resources: []string{rules.VerbAny},
+	}
+}
+
+func TestMatchRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		resourceGroup string
+		apiResource   metav1.APIResource
+		rule          authorizationv1.ResourceRule
+		matcher       gTypes.GomegaMatcher
+	}{
+		{
+			name:          "Should match",
+			resourceGroup: "",
+			apiResource: metav1.APIResource{
+				Verbs: allVerb(),
+			},
+			rule:    anyRule(),
+			matcher: BeTrue(),
+		},
+		{
+			name:          "Should match as resource is explicitly listed",
+			resourceGroup: "unknown",
+			apiResource: metav1.APIResource{
+				Name: "baz",
+			},
+			rule: authorizationv1.ResourceRule{
+				APIGroups: []string{rules.ResourceAny},
+				Resources: []string{"baz"},
+			},
+			matcher: BeTrue(),
+		},
+		{
+			name:          "Should not match as API group is not listed",
+			resourceGroup: "unknown",
+			apiResource:   metav1.APIResource{},
+			rule: authorizationv1.ResourceRule{
+				APIGroups: []string{"baz"},
+			},
+			matcher: BeFalse(),
+		},
+		{
+			name:          "Should not match as resource is not listed",
+			resourceGroup: "unknown",
+			apiResource:   metav1.APIResource{},
+			rule: authorizationv1.ResourceRule{
+				Resources: []string{"baz"},
+			},
+			matcher: BeFalse(),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			g.Expect(
+				rules.IsResourceMatchingRule(
+					test.resourceGroup,
+					test.apiResource,
+					test.rule,
+				),
+			).To(test.matcher)
+		})
+	}
+}
+
+func TestHasPermissions(t *testing.T) {
+	t.Parallel()
+
+	podResource := metav1.APIResource{Name: "pods", Namespaced: true, Kind: "Pod"}
+
+	cases := []struct {
+		name          string
+		rules         []authorizationv1.ResourceRule
+		requiredVerbs []string
+		want          bool
+	}{
+		{
+			name: "single verb granted",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"delete"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			requiredVerbs: []string{"delete"},
+			want:          true,
+		},
+		{
+			name: "rule grants more verbs than required",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"list", "delete", "update"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			requiredVerbs: []string{"delete"},
+			want:          true,
+		},
+		{
+			name: "single verb not granted",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"list"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			requiredVerbs: []string{"delete"},
+			want:          false,
+		},
+		{
+			name: "multiple verbs all granted by one rule",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"list", "delete"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			requiredVerbs: []string{"list", "delete"},
+			want:          true,
+		},
+		{
+			name: "multiple verbs only one granted",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"list"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			requiredVerbs: []string{"list", "delete"},
+			want:          false,
+		},
+		{
+			name: "multiple verbs granted by separate rules",
+			rules: []authorizationv1.ResourceRule{
+				{Verbs: []string{"list"}, APIGroups: []string{""}, Resources: []string{"pods"}},
+				{Verbs: []string{"delete"}, APIGroups: []string{""}, Resources: []string{"pods"}},
+			},
+			requiredVerbs: []string{"list", "delete"},
+			want:          true,
+		},
+		{
+			name: "wildcard verb covers all required verbs",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"*"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			requiredVerbs: []string{"list", "delete", "update"},
+			want:          true,
+		},
+		{
+			name:          "empty required verbs returns false",
+			rules:         []authorizationv1.ResourceRule{anyRule()},
+			requiredVerbs: []string{},
+			want:          false,
+		},
+		{
+			name:          "nil required verbs returns false",
+			rules:         []authorizationv1.ResourceRule{anyRule()},
+			requiredVerbs: nil,
+			want:          false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+			got := rules.HasPermissions("", podResource, tc.rules, tc.requiredVerbs)
+			g.Expect(got).To(Equal(tc.want))
+		})
+	}
+}
+
+func newTestResource(group string, version string, kind string, resource string) resources.Resource {
+	return resources.Resource{
+		RESTMapping: meta.RESTMapping{
+			GroupVersionKind: schema.GroupVersionKind{
+				Group:   group,
+				Version: version,
+				Kind:    kind,
+			},
+			Resource: schema.GroupVersionResource{
+				Group:    group,
+				Version:  version,
+				Resource: resource,
+			},
+			Scope: meta.RESTScopeNamespace,
+		},
+	}
+}
+
+func testScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
+	_ = authorizationv1.AddToScheme(s)
+	return s
+}
+
+func TestListAuthorizedResources(t *testing.T) {
+	const testNamespace = "test-namespace"
+
+	testCases := []struct {
+		name             string
+		apis             []*metav1.APIResourceList
+		rules            []authorizationv1.ResourceRule
+		resourcesMatcher gTypes.GomegaMatcher
+	}{
+		{
+			name: "successful retrieval of authorized resources",
+			apis: []*metav1.APIResourceList{{
+				GroupVersion: "v1",
+				APIResources: []metav1.APIResource{
+					{Name: "pods", Namespaced: true, Kind: "Pod", Version: "v1", Verbs: []string{"delete", "list"}},
+				},
+			}, {
+				GroupVersion: "apps/v1",
+				APIResources: []metav1.APIResource{
+					{Name: "deployments", Namespaced: true, Kind: "Deployment", Group: "apps", Version: "v1", Verbs: []string{"delete", "list"}},
+				},
+			}},
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"delete"},
+				APIGroups: []string{"", "apps"},
+				Resources: []string{"pods", "deployments"},
+			}},
+			resourcesMatcher: And(
+				HaveLen(2),
+				ContainElements(
+					newTestResource("", "v1", "Pod", "pods"),
+					newTestResource("apps", "v1", "Deployment", "deployments"),
+				),
+			),
+		},
+		{
+			name: "successful filter of authorized resources",
+			apis: []*metav1.APIResourceList{{
+				GroupVersion: "v1",
+				APIResources: []metav1.APIResource{
+					{Name: "pods", Namespaced: true, Kind: "Pod", Version: "v1", Verbs: []string{"delete", "list"}},
+				},
+			}, {
+				GroupVersion: "apps/v1",
+				APIResources: []metav1.APIResource{
+					{Name: "deployments", Namespaced: true, Kind: "Deployment", Group: "apps", Version: "v1", Verbs: []string{"delete", "list"}},
+				},
+			}},
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"delete"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			resourcesMatcher: And(
+				HaveLen(1),
+				ContainElements(
+					newTestResource("", "v1", "Pod", "pods"),
+				),
+			),
+		},
+		{
+			name: "no authorized resources by rule",
+			apis: []*metav1.APIResourceList{{
+				GroupVersion: "v1",
+				APIResources: []metav1.APIResource{
+					{Name: "pods", Namespaced: true, Kind: "Pod", Verbs: []string{"delete", "list"}},
+				},
+			}},
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"list", "get"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			resourcesMatcher: BeEmpty(),
+		},
+		{
+			name: "no authorized resources",
+			apis: []*metav1.APIResourceList{{
+				GroupVersion: "v1",
+				APIResources: []metav1.APIResource{
+					{Name: "pods", Namespaced: true, Kind: "Pod", Verbs: []string{"list"}},
+				},
+			}},
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:     []string{"delete", "list", "get"},
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+			}},
+			resourcesMatcher: BeEmpty(),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := t.Context()
+
+			s := testScheme()
+
+			mapper := meta.NewDefaultRESTMapper(s.PreferredVersionAllGroups())
+			for kt := range s.AllKnownTypes() {
+				mapper.Add(kt, meta.RESTScopeNamespace)
+			}
+
+			cli := clientFake.NewClientBuilder().
+				WithScheme(s).
+				WithRESTMapper(mapper).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						if s, ok := obj.(*authorizationv1.SelfSubjectRulesReview); ok {
+							s.Status.ResourceRules = tc.rules
+							return nil
+						}
+
+						return client.Create(ctx, obj, opts...)
+					},
+				}).
+				Build()
+
+			items, err := rules.ListAuthorizedResources(ctx, cli, tc.apis, testNamespace, []string{rules.VerbDelete})
+
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(items).Should(tc.resourcesMatcher)
+		})
+	}
+}
+
+func TestRetrieveSelfSubjectRules(t *testing.T) {
+	testCases := []struct {
+		name          string
+		createFn      func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error
+		expectedError bool
+	}{
+		{
+			name: "should return error when create fails",
+			createFn: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*authorizationv1.SelfSubjectRulesReview); ok {
+					return errors.New("create failed")
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+			expectedError: true,
+		},
+		{
+			name: "should not return error when EvaluationError is set",
+			createFn: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if s, ok := obj.(*authorizationv1.SelfSubjectRulesReview); ok {
+					s.Status.EvaluationError = "some evaluation error"
+					s.Status.ResourceRules = []authorizationv1.ResourceRule{}
+					return nil
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+			expectedError: false,
+		},
+		{
+			name: "should return rules successfully",
+			createFn: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if s, ok := obj.(*authorizationv1.SelfSubjectRulesReview); ok {
+					s.Status.ResourceRules = []authorizationv1.ResourceRule{}
+					return nil
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+			expectedError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := t.Context()
+
+			s := testScheme()
+
+			cli := clientFake.NewClientBuilder().
+				WithScheme(s).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: tc.createFn,
+				}).
+				Build()
+
+			result, err := rules.RetrieveSelfSubjectRules(ctx, cli, "")
+
+			if tc.expectedError {
+				g.Expect(err).Should(HaveOccurred())
+				g.Expect(result).Should(BeNil())
+			} else {
+				g.Expect(err).ShouldNot(HaveOccurred())
+				g.Expect(result).ShouldNot(BeNil())
+			}
+		})
+	}
+}
