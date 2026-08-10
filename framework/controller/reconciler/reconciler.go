@@ -69,6 +69,13 @@ func getChartsBasePath(mgr manager.Manager) string {
 // It returns true to stop reconciliation (skip actions).
 type PreApplyFn func(ctx context.Context, rr *types.ReconciliationRequest) bool
 
+// PostStatusFn is a callback invoked after conditions and phase have been
+// computed but before the SSA status write. It can set custom status fields
+// on rr.Instance based on the authoritative isHappy value.
+// Note: when skipStatusConditionsFn is active, Phase, Conditions, and
+// ObservedGeneration are reset after this hook runs.
+type PostStatusFn func(ctx context.Context, rr *types.ReconciliationRequest, isHappy bool) error
+
 type ReconcilerOpt func(*Reconciler)
 
 func WithConditionsManagerFactory(happy string, dependents ...string) ReconcilerOpt {
@@ -136,6 +143,15 @@ func WithSkipConditionCleanup() ReconcilerOpt {
 	}
 }
 
+// WithPostStatusFn sets a callback that runs after conditions/phase are computed
+// but before the SSA status write. The hook receives the final isHappy value
+// and can modify any field on rr.Instance before it is written.
+func WithPostStatusFn(fn PostStatusFn) ReconcilerOpt {
+	return func(reconciler *Reconciler) {
+		reconciler.postStatusFn = fn
+	}
+}
+
 // WithDefaultRequeueAfter sets a fallback requeue interval used when reconciliation
 // succeeds and no action requested a specific requeue via errors.RequeueAfterError.
 // Useful for controllers that must periodically poll state not backed by a
@@ -184,6 +200,7 @@ type Reconciler struct {
 	phaseReady                  string
 	phaseNotReady               string
 	preApplyFn                  PreApplyFn
+	postStatusFn                PostStatusFn
 	instanceFactory             func() (api.PlatformObject, error)
 	conditionsManagerFactory    func(api.ConditionsAccessor) *conditions.Manager
 	gvks                        map[schema.GroupVersionKind]gvkInfo
@@ -523,9 +540,16 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 
 	rr.Conditions.Sort()
 
-	if rr.Conditions.IsHappy() {
+	isHappy := rr.Conditions.IsHappy()
+	if isHappy {
 		is.Phase = r.phaseReady
 		is.ObservedGeneration = rr.Instance.GetGeneration()
+	}
+
+	if r.postStatusFn != nil {
+		if err := r.postStatusFn(ctx, &rr, isHappy); err != nil {
+			return 0, fmt.Errorf("post status hook: %w", err)
+		}
 	}
 
 	if r.skipStatusConditionsFn != nil && r.skipStatusConditionsFn() {
