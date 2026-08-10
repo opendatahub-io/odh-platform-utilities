@@ -52,6 +52,16 @@ func WithManagedByFalseMatcher(matcher ResourceMatcher) Option {
 	}
 }
 
+// WithDefaultPredicates sets the default predicates for all dynamically
+// owned resources. These are used when no GVK-specific predicate is set.
+// Deployments always use DefaultDeploymentPredicate regardless of this
+// setting; use WithGVKPredicates to override the Deployment predicate.
+func WithDefaultPredicates(preds ...predicate.Predicate) Option {
+	return func(a *Action) {
+		a.defaultPredicates = preds
+	}
+}
+
 // WithGVKPredicates sets custom predicates for specific GVKs.
 func WithGVKPredicates(gvkPredicates map[schema.GroupVersionKind][]predicate.Predicate) Option {
 	return func(a *Action) {
@@ -79,6 +89,7 @@ type Action struct {
 	watchRegisterFn       WatchRegisterFunc
 	ownerGVK              schema.GroupVersionKind
 	managedByFalseMatcher ResourceMatcher
+	defaultPredicates     []predicate.Predicate
 	gvkPredicates         map[schema.GroupVersionKind][]predicate.Predicate
 	watched               sync.Map
 	watchedCRDs           sync.Map
@@ -201,14 +212,17 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 				resources.GvkToUnstructured(a.ownerGVK),
 				handler.OnlyControllerOwner(),
 			)
-			if customPredicates, ok := a.gvkPredicates[resGVK]; ok {
+			customPredicates, hasCustom := a.gvkPredicates[resGVK]
+
+			switch {
+			case hasCustom:
 				watchPredicates = customPredicates
-			} else {
-				if resGVK == deploymentGVK {
-					watchPredicates = []predicate.Predicate{predicates.DefaultDeploymentPredicate}
-				} else {
-					watchPredicates = []predicate.Predicate{predicates.DefaultPredicate}
-				}
+			case resGVK == deploymentGVK:
+				watchPredicates = []predicate.Predicate{predicates.DefaultDeploymentPredicate}
+			case len(a.defaultPredicates) > 0:
+				watchPredicates = a.defaultPredicates
+			default:
+				watchPredicates = []predicate.Predicate{predicates.DefaultPredicate}
 			}
 		} else {
 			eventHandler = handlers.ToNamed(rr.Instance.GetName())

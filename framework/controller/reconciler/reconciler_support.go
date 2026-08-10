@@ -105,22 +105,23 @@ func CrdExistsWithoutPreferred(fallbackGVK, preferredGVK schema.GroupVersionKind
 }
 
 type ReconcilerBuilder[T api.PlatformObject] struct {
-	mgr                      ctrl.Manager
-	input                    forInput
-	watches                  []watchInput
-	rawSources               []source.Source
-	predicates               []predicate.Predicate
-	instanceName             string
-	actions                  []actions.Fn
-	finalizers               []actions.Fn
-	errors                   error
-	happyCondition           string
-	dependentConditions      []string
-	dynamicOwnership         bool
-	excludeFromOwnership     []schema.GroupVersionKind
-	dynamicOwnershipGVKPreds map[schema.GroupVersionKind][]predicate.Predicate
-	reconcilerOpts           []ReconcilerOpt
-	skipStatusConditionsFn   func() bool
+	mgr                          ctrl.Manager
+	input                        forInput
+	watches                      []watchInput
+	rawSources                   []source.Source
+	predicates                   []predicate.Predicate
+	instanceName                 string
+	actions                      []actions.Fn
+	finalizers                   []actions.Fn
+	errors                       error
+	happyCondition               string
+	dependentConditions          []string
+	dynamicOwnership             bool
+	excludeFromOwnership         []schema.GroupVersionKind
+	dynamicOwnershipGVKPreds     map[schema.GroupVersionKind][]predicate.Predicate
+	dynamicOwnershipDefaultPreds []predicate.Predicate
+	reconcilerOpts               []ReconcilerOpt
+	skipStatusConditionsFn       func() bool
 
 	instanceAnnotation string
 	partOfLabel        string
@@ -202,6 +203,14 @@ func (b *ReconcilerBuilder[T]) WithoutStatusConditionsIf(pred func() bool) *Reco
 	return b
 }
 
+// WithPostStatusFn sets a callback that runs after conditions/phase are computed
+// but before the SSA status write. The hook receives the final isHappy value
+// and can set custom status fields on rr.Instance.
+func (b *ReconcilerBuilder[T]) WithPostStatusFn(fn PostStatusFn) *ReconcilerBuilder[T] {
+	b.reconcilerOpts = append(b.reconcilerOpts, WithPostStatusFn(fn))
+	return b
+}
+
 // WithReconcilerOpts passes additional functional options to the underlying Reconciler
 // created during Build. Use this to set release info, finalizer name, phase names, etc.
 func (b *ReconcilerBuilder[T]) WithReconcilerOpts(opts ...ReconcilerOpt) *ReconcilerBuilder[T] {
@@ -238,8 +247,9 @@ func (b *ReconcilerBuilder[T]) WithFinalizer(value actions.Fn) *ReconcilerBuilde
 type DynamicOwnershipOption func(*dynamicOwnershipConfig)
 
 type dynamicOwnershipConfig struct {
-	excludeGVKs   []schema.GroupVersionKind
-	gvkPredicates map[schema.GroupVersionKind][]predicate.Predicate
+	excludeGVKs       []schema.GroupVersionKind
+	gvkPredicates     map[schema.GroupVersionKind][]predicate.Predicate
+	defaultPredicates []predicate.Predicate
 }
 
 // ExcludeGVKs excludes GVKs from dynamic ownership. Excluded GVKs will not get
@@ -259,6 +269,14 @@ func ExcludeGVKs(gvks ...schema.GroupVersionKind) DynamicOwnershipOption {
 func WithDynamicOwnershipGVKPredicates(gvkPredicates map[schema.GroupVersionKind][]predicate.Predicate) DynamicOwnershipOption {
 	return func(c *dynamicOwnershipConfig) {
 		c.gvkPredicates = gvkPredicates
+	}
+}
+
+// WithDefaultPredicates sets the default predicates for all dynamically
+// owned resources. Used when no GVK-specific predicate is configured.
+func WithDefaultPredicates(preds ...predicate.Predicate) DynamicOwnershipOption {
+	return func(c *dynamicOwnershipConfig) {
+		c.defaultPredicates = preds
 	}
 }
 
@@ -284,6 +302,7 @@ func (b *ReconcilerBuilder[T]) WithDynamicOwnership(opts ...DynamicOwnershipOpti
 	b.excludeFromOwnership = append(b.excludeFromOwnership, namespaceGVK)
 	b.excludeFromOwnership = append(b.excludeFromOwnership, cfg.excludeGVKs...)
 	b.dynamicOwnershipGVKPreds = cfg.gvkPredicates
+	b.dynamicOwnershipDefaultPreds = cfg.defaultPredicates
 
 	return b
 }
@@ -506,6 +525,9 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 
 	if b.dynamicOwnership {
 		dynamicOpts := []dynamicownership.Option{}
+		if len(b.dynamicOwnershipDefaultPreds) > 0 {
+			dynamicOpts = append(dynamicOpts, dynamicownership.WithDefaultPredicates(b.dynamicOwnershipDefaultPreds...))
+		}
 		if b.dynamicOwnershipGVKPreds != nil {
 			dynamicOpts = append(dynamicOpts, dynamicownership.WithGVKPredicates(b.dynamicOwnershipGVKPreds))
 		}
