@@ -70,15 +70,10 @@ func newPostStatusTestReconciler(
 		Actions: []actions.Fn{
 			actionFn,
 		},
-		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(
-				accessor,
-				mustNewAggregator(
-					DefaultHappyCondition,
-					conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
-				),
-			)
-		},
+		conditionsAggregator: mustNewAggregator(
+			DefaultHappyCondition,
+			conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
+		),
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
 		instanceFactory: func() (api.PlatformObject, error) {

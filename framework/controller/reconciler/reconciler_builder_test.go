@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 
 	. "github.com/onsi/gomega"
@@ -99,5 +101,62 @@ func TestReconcilerBuilder_WithActionE(t *testing.T) {
 		b.WithActionE(nil, errors.New("action init failed"))
 		_, buildErr := b.Build(context.Background())
 		g.Expect(buildErr).To(MatchError(ContainSubstring("action init failed")))
+	})
+
+	t.Run("invalid conditions configuration surfaces in Build()", func(t *testing.T) {
+		g := NewWithT(t)
+		b := &ReconcilerBuilder[*testPlatformObject]{
+			input: forInput{
+				object: newTestPlatformObject(testGVKDashboard),
+				gvk:    testGVKDashboard,
+			},
+			happyCondition: api.ConditionTypeReady,
+			dependentConditions: []conditions.DependentDefinition{
+				conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
+				conditions.Dependent("DependencyReady", conditions.HealthyWhenFalse),
+			},
+		}
+
+		_, buildErr := b.Build(context.Background())
+		g.Expect(buildErr).To(MatchError(ContainSubstring("invalid conditions manager configuration")))
+	})
+}
+
+func TestWithConditionAggregation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stores configuration without panicking", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		opt := WithConditionAggregation(
+			api.ConditionTypeReady,
+			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
+			conditions.Dependent("DependencyReady", conditions.HealthyWhenFalse),
+		)
+
+		reconciler := &Reconciler{}
+		g.Expect(func() {
+			opt(reconciler)
+		}).ToNot(Panic())
+		g.Expect(reconciler.conditionsManagerHappy).To(Equal(api.ConditionTypeReady))
+		g.Expect(reconciler.conditionsManagerDependents).To(HaveLen(2))
+	})
+
+	t.Run("stores valid configuration", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		opt := WithConditionAggregation(
+			api.ConditionTypeReady,
+			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
+		)
+
+		reconciler := &Reconciler{}
+		opt(reconciler)
+		g.Expect(reconciler.conditionsManagerHappy).To(Equal(api.ConditionTypeReady))
+		g.Expect(reconciler.conditionsManagerDependents).To(ConsistOf(
+			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
+		))
 	})
 }

@@ -10,7 +10,6 @@ import (
 
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	odherrors "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/errors"
-	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -76,17 +75,15 @@ func newApplyTestReconciler(
 		Build()
 
 	r := &Reconciler{
-		Client:                    cli,
-		Scheme:                    s,
-		Recorder:                  recorder,
-		name:                      "test-reconciler",
-		provisioningConditionType: DefaultProvisioningConditionType,
-		phaseReady:                DefaultPhaseReady,
-		phaseNotReady:             DefaultPhaseNotReady,
-		skipConditionCleanup:      true,
-		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, mustNewAggregator(DefaultHappyCondition))
-		},
+		Client:                      cli,
+		Scheme:                      s,
+		Recorder:                    recorder,
+		name:                        "test-reconciler",
+		provisioningConditionType:   DefaultProvisioningConditionType,
+		phaseReady:                  DefaultPhaseReady,
+		phaseNotReady:               DefaultPhaseNotReady,
+		skipConditionCleanup:        true,
+		conditionsAggregator:        mustNewAggregator(DefaultHappyCondition),
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
 		instanceFactory: func() (api.PlatformObject, error) {

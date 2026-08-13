@@ -10,7 +10,6 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/errors"
-	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
@@ -98,10 +97,8 @@ func newRequeueTestReconciler(t *testing.T, defaultRequeueAfter time.Duration, a
 		phaseReady:                DefaultPhaseReady,
 		phaseNotReady:             DefaultPhaseNotReady,
 		preApplyFailedReason:      "PreConditionFailed",
-		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, mustNewAggregator(DefaultHappyCondition))
-		},
-		defaultRequeueAfter: defaultRequeueAfter,
+		conditionsAggregator:      mustNewAggregator(DefaultHappyCondition),
+		defaultRequeueAfter:       defaultRequeueAfter,
 	}
 
 	if action != nil {

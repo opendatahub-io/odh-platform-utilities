@@ -440,7 +440,7 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 	}
 
 	opts := []ReconcilerOpt{
-		WithConditionsManagerFactory(b.happyCondition, b.dependentConditions...),
+		WithConditionAggregation(b.happyCondition, b.dependentConditions...),
 	}
 	if b.dynamicOwnership {
 		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
