@@ -16,6 +16,17 @@ const (
 	ConditionReasonError = "Error"
 )
 
+// ConditionType identifies a status condition by name.
+type ConditionType string
+
+const (
+	ConditionTypeReady ConditionType = "Ready"
+
+	ConditionTypeProvisioningSucceeded ConditionType = "ProvisioningSucceeded"
+
+	ConditionTypeDegraded ConditionType = "Degraded"
+)
+
 // +kubebuilder:object:generate=true
 type Condition struct {
 	// type of condition in CamelCase or in foo.example.com/CamelCase.

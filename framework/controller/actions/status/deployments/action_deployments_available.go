@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	DefaultConditionType      = "DeploymentsAvailable"
+	DefaultConditionType      = api.ConditionType("DeploymentsAvailable")
 	DefaultNotAvailableReason = "DeploymentsNotReady"
 	DefaultPartOfLabelKey     = "platform.opendatahub.io/part-of"
 )
@@ -25,7 +26,7 @@ type Action struct {
 	partOfLabelKey                string
 	labels                        map[string]string
 	namespaceFn                   actions.Getter[string]
-	conditionType                 string
+	conditionType                 api.ConditionType
 	notAvailableReason            string
 	disableAutomaticPartOfDefault bool
 }
@@ -53,7 +54,7 @@ func WithPartOfLabel(key string) ActionOpts {
 }
 
 // WithConditionType sets the condition type used to report deployment availability.
-func WithConditionType(conditionType string) ActionOpts {
+func WithConditionType(conditionType api.ConditionType) ActionOpts {
 	return func(action *Action) {
 		action.conditionType = conditionType
 	}
@@ -142,16 +143,18 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 
 	s := obj.GetStatus()
 
-	rr.Conditions.MarkTrue(a.conditionType, conditions.WithObservedGeneration(s.ObservedGeneration))
-
-	if len(deployments.Items) == 0 || (len(deployments.Items) > 0 && ready != len(deployments.Items)) {
-		rr.Conditions.MarkFalse(
+	if len(deployments.Items) == 0 || ready != len(deployments.Items) {
+		rr.Conditions.MarkUnhealthy(
 			a.conditionType,
 			conditions.WithObservedGeneration(s.ObservedGeneration),
 			conditions.WithReason(a.notAvailableReason),
-			conditions.WithMessage("%d/%d deployments ready", ready, len(deployments.Items)),
+			conditions.WithMessagef("%d/%d deployments ready", ready, len(deployments.Items)),
 		)
+
+		return nil
 	}
+
+	rr.Conditions.MarkHealthy(a.conditionType, conditions.WithObservedGeneration(s.ObservedGeneration))
 
 	return nil
 }

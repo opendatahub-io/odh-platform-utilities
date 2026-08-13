@@ -33,8 +33,8 @@ import (
 
 const (
 	DefaultFinalizerName             = "platform.opendatahub.io/finalizer"
-	DefaultHappyCondition            = "Ready"
-	DefaultProvisioningConditionType = "ProvisioningSucceeded"
+	DefaultHappyCondition            = api.ConditionTypeReady
+	DefaultProvisioningConditionType = api.ConditionTypeProvisioningSucceeded
 	DefaultPhaseReady                = "Ready"
 	DefaultPhaseNotReady             = "Not Ready"
 )
@@ -78,10 +78,18 @@ type PostStatusFn func(ctx context.Context, rr *types.ReconciliationRequest, isH
 
 type ReconcilerOpt func(*Reconciler)
 
-func WithConditionsManagerFactory(happy string, dependents ...string) ReconcilerOpt {
+func WithConditionsManagerFactory(
+	happy api.ConditionType,
+	dependents ...conditions.DependentDefinition,
+) ReconcilerOpt {
+	aggregator, err := conditions.NewAggregator(happy, dependents...)
+	if err != nil {
+		panic(fmt.Sprintf("invalid conditions manager configuration: %v", err))
+	}
+
 	return func(reconciler *Reconciler) {
 		reconciler.conditionsManagerFactory = func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, happy, dependents...)
+			return conditions.NewManager(accessor, aggregator)
 		}
 	}
 }
@@ -101,7 +109,7 @@ func WithFinalizerName(name string) ReconcilerOpt {
 }
 
 // WithProvisioningConditionType sets the condition type used for provisioning status.
-func WithProvisioningConditionType(conditionType string) ReconcilerOpt {
+func WithProvisioningConditionType(conditionType api.ConditionType) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
 		reconciler.provisioningConditionType = conditionType
 	}
@@ -195,7 +203,7 @@ type Reconciler struct {
 
 	name                        string
 	finalizerName               string
-	provisioningConditionType   string
+	provisioningConditionType   api.ConditionType
 	preApplyFailedReason        string
 	phaseReady                  string
 	phaseNotReady               string
@@ -214,6 +222,11 @@ type Reconciler struct {
 
 // NewReconciler creates a new reconciler for the given type.
 func NewReconciler[T api.PlatformObject](mgr manager.Manager, name string, object T, opts ...ReconcilerOpt) (*Reconciler, error) {
+	defaultAggregator, err := conditions.NewAggregator(DefaultHappyCondition)
+	if err != nil {
+		panic(fmt.Sprintf("invalid default conditions manager configuration: %v", err))
+	}
+
 	discoveryCli, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, fmt.Errorf("unable to construct a Discovery client: %w", err)
@@ -255,7 +268,7 @@ func NewReconciler[T api.PlatformObject](mgr manager.Manager, name string, objec
 			return res, nil
 		},
 		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, DefaultHappyCondition)
+			return conditions.NewManager(accessor, defaultAggregator)
 		},
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
@@ -536,7 +549,7 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	is := rr.Instance.GetStatus()
 	is.Phase = r.phaseNotReady
 
-	rr.Conditions.RecomputeHappiness("")
+	rr.Conditions.RecomputeHappiness()
 
 	rr.Conditions.Sort()
 

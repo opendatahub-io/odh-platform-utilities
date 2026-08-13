@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
@@ -19,7 +20,7 @@ import (
 )
 
 const (
-	DefaultConditionType      = "ImageStreamsAvailable"
+	DefaultConditionType      = api.ConditionType("ImageStreamsAvailable")
 	DefaultNotAvailableReason = "ImageStreamsNotReady"
 	DefaultPartOfLabelKey     = "platform.opendatahub.io/part-of"
 
@@ -36,7 +37,7 @@ type Action struct {
 	partOfLabelKey                string
 	labels                        map[string]string
 	namespaceFn                   actions.Getter[string]
-	conditionType                 string
+	conditionType                 api.ConditionType
 	notAvailableReason            string
 	disableAutomaticPartOfDefault bool
 }
@@ -61,7 +62,7 @@ func WithPartOfLabel(key string) ActionOpts {
 	}
 }
 
-func WithConditionType(conditionType string) ActionOpts {
+func WithConditionType(conditionType api.ConditionType) ActionOpts {
 	return func(action *Action) {
 		action.conditionType = conditionType
 	}
@@ -141,13 +142,6 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 	}
 
 	s := obj.GetStatus()
-
-	rr.Conditions.MarkTrue(a.conditionType, conditions.WithObservedGeneration(s.ObservedGeneration))
-
-	if len(imageStreams.Items) == 0 {
-		return nil
-	}
-
 	var failedTags []string
 
 	for i := range imageStreams.Items {
@@ -176,13 +170,17 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 			reported = reported[:maxFailedTags]
 		}
 
-		rr.Conditions.MarkFalse(
+		rr.Conditions.MarkUnhealthy(
 			a.conditionType,
 			conditions.WithObservedGeneration(s.ObservedGeneration),
 			conditions.WithReason(a.notAvailableReason),
-			conditions.WithMessage("Warning: %d ImageStream tag(s) failed to import: %s%s", len(failedTags), strings.Join(reported, "; "), suffix),
+			conditions.WithMessagef("Warning: %d ImageStream tag(s) failed to import: %s%s", len(failedTags), strings.Join(reported, "; "), suffix),
 		)
+
+		return nil
 	}
+
+	rr.Conditions.MarkHealthy(a.conditionType, conditions.WithObservedGeneration(s.ObservedGeneration))
 
 	return nil
 }

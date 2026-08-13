@@ -99,7 +99,7 @@ func newRequeueTestReconciler(t *testing.T, defaultRequeueAfter time.Duration, a
 		phaseNotReady:             DefaultPhaseNotReady,
 		preApplyFailedReason:      "PreConditionFailed",
 		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, DefaultHappyCondition)
+			return conditions.NewManager(accessor, mustNewAggregator(DefaultHappyCondition))
 		},
 		defaultRequeueAfter: defaultRequeueAfter,
 	}

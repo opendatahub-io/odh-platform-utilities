@@ -85,7 +85,7 @@ func newApplyTestReconciler(
 		phaseNotReady:             DefaultPhaseNotReady,
 		skipConditionCleanup:      true,
 		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, DefaultHappyCondition)
+			return conditions.NewManager(accessor, mustNewAggregator(DefaultHappyCondition))
 		},
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
