@@ -51,7 +51,7 @@ func gitAdd(ctx context.Context, path string) error {
 }
 
 func gitIsClean(ctx context.Context, path string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet", "--", path)
+	cmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet", "--", path) //nolint:gosec // path is passed as a single argv element after --
 	err := cmd.Run()
 	if err == nil {
 		return true, nil

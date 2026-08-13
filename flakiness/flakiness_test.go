@@ -697,7 +697,7 @@ func TestRun_TokenExpiryWarning(t *testing.T) {
 				MinRuns:    3,
 			},
 			Quarantine: flakiness.QuarantineConfig{AutoQuarantine: true},
-			Jira: flakiness.JiraConfig{
+			Jira: flakiness.JiraConfig{ //nolint:gosec // test-only token expiry fixtures
 				TokenExpiresAt:         "2026-06-20T00:00:00Z",
 				TokenExpiryWarningDays: 14,
 			},
@@ -727,7 +727,7 @@ func TestRun_TokenExpiryWarning(t *testing.T) {
 				MinRuns:    3,
 			},
 			Quarantine: flakiness.QuarantineConfig{AutoQuarantine: true},
-			Jira: flakiness.JiraConfig{
+			Jira: flakiness.JiraConfig{ //nolint:gosec // test-only token expiry fixtures
 				TokenExpiresAt:         "2027-12-31T00:00:00Z",
 				TokenExpiryWarningDays: 14,
 			},

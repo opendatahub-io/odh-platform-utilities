@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/onsi/gomega/format"
@@ -26,8 +27,8 @@ func formattedMessage(comparisonMessage string, failurePath []any) string {
 func formattedFailurePath(failurePath []any) string {
 	formattedPaths := make([]string, 0)
 
-	for i := len(failurePath) - 1; i >= 0; i-- {
-		switch p := failurePath[i].(type) {
+	for i, v := range slices.Backward(failurePath) {
+		switch p := v.(type) {
 		case int:
 			val := fmt.Sprintf(`[%d]`, p)
 			formattedPaths = append(formattedPaths, val)

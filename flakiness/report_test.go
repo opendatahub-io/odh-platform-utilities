@@ -318,7 +318,10 @@ func TestAnalyze_IntegrationWithStore(t *testing.T) {
 		{Name: "TestBroken", Suite: "e2e", Job: "nightly", BuildID: "6", Result: flakiness.OutcomeFail, Duration: 3 * time.Second, Timestamp: base.Add(5 * time.Hour), CommitSHA: "fff"},
 	}
 
-	allResults := append(append(stableResults, flakyResults...), regressionResults...)
+	allResults := make([]flakiness.TestResult, 0, len(stableResults)+len(flakyResults)+len(regressionResults))
+	allResults = append(allResults, stableResults...)
+	allResults = append(allResults, flakyResults...)
+	allResults = append(allResults, regressionResults...)
 	for _, r := range allResults {
 		require.NoError(t, flakiness.RecordTestResult(appender, r))
 	}

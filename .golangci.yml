@@ -2,9 +2,12 @@ version: "2"
 
 linters:
   default: all
+  enable:
+    - gomodguard_v2
   disable:
     - depguard
     - exhaustruct
+    - gomodguard
     - godox
     - ireturn
     - mnd
@@ -20,6 +23,13 @@ linters:
       check-type-assertions: true
     exhaustive:
       default-signifies-exhaustive: true
+    goconst:
+      ignore-string-values:
+        - containers
+        - replicas
+        - resources
+        - spec
+        - template
     govet:
       enable-all: true
     importas:
@@ -28,6 +38,12 @@ linters:
       rules:
         - name: unexported-return
           disabled: true
+
+  exclusions:
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - goconst
 
 formatters:
   enable:

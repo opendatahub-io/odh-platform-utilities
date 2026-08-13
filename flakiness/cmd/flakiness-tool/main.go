@@ -15,7 +15,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "run" {
-		log.Fatalf("Usage: %s run --config <path> [--push-back]", os.Args[0])
+		log.Fatalf("Usage: %s run --config <path> [--push-back]", os.Args[0]) //nolint:gosec // usage text only echoes the current argv[0]
 	}
 
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
