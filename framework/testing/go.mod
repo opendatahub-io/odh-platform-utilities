@@ -1,6 +1,6 @@
 module github.com/opendatahub-io/odh-platform-utilities/framework/testing
 
-go 1.25.7
+go 1.25.12
 
 require (
 	github.com/onsi/gomega v1.39.1
