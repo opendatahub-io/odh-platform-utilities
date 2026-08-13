@@ -2,8 +2,8 @@ GOLANGCI_LINT_VERSION ?= v2.5.0
 CONTROLLER_GEN_VERSION ?= v0.20.1
 COVERAGE_FILE ?= cover.out
 
-GOLANGCI_LINT = $(shell which golangci-lint 2>/dev/null)
-CONTROLLER_GEN = $(shell which controller-gen 2>/dev/null)
+GOLANGCI_LINT = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+CONTROLLER_GEN = go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 
 # Pin the toolchain to the exact Go version declared in go.mod so that
 # the race-instrumented stdlib is compiled with the same compiler version
@@ -20,27 +20,26 @@ all: fmt vet lint test
 ##@ Code Generation
 
 .PHONY: generate
-generate: controller-gen ## Regenerate DeepCopy methods for api/ types.
-	"$(CONTROLLER_GEN)" object paths="./api/..."
+generate: ## Regenerate DeepCopy methods for api/ types.
+	$(CONTROLLER_GEN) object paths="./api/..."
 
 ##@ Development
 
 .PHONY: fmt
 fmt: ## Run gofmt and golangci-lint formatter.
-	gofmt -w .
-	@if [ -n "$(GOLANGCI_LINT)" ]; then "$(GOLANGCI_LINT)" fmt; fi
+	$(GOLANGCI_LINT) fmt
 
 .PHONY: vet
 vet: ## Run go vet.
 	go vet ./...
 
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint.
-	"$(GOLANGCI_LINT)" run
+lint: ## Run golangci-lint.
+	$(GOLANGCI_LINT) run
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint with --fix.
-	"$(GOLANGCI_LINT)" run --fix
+lint-fix: ## Run golangci-lint with --fix.
+	$(GOLANGCI_LINT) run --fix
 
 .PHONY: test
 test: ## Run tests with race detector and coverage.
@@ -107,22 +106,6 @@ verify-tidy-all: verify-tidy ## Verify go.mod/go.sum are tidy across all modules
 .PHONY: verify-generate-all
 verify-generate-all: verify-generate ## Verify generated files are up to date across all modules.
 	$(MAKE) -C framework verify-generate
-
-##@ Tools
-
-.PHONY: golangci-lint
-golangci-lint: ## Install golangci-lint if not present.
-ifeq ($(GOLANGCI_LINT),)
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-	$(eval GOLANGCI_LINT = $(shell go env GOPATH)/bin/golangci-lint)
-endif
-
-.PHONY: controller-gen
-controller-gen: ## Install controller-gen if not present.
-ifeq ($(CONTROLLER_GEN),)
-	go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
-	$(eval CONTROLLER_GEN = $(shell go env GOPATH)/bin/controller-gen)
-endif
 
 ##@ Help
 
