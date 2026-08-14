@@ -25,11 +25,7 @@ linters:
       default-signifies-exhaustive: true
     goconst:
       ignore-string-values:
-        - containers
-        - replicas
-        - resources
-        - spec
-        - template
+        - '^(containers|replicas|resources|spec|template)$'
     govet:
       enable-all: true
     importas:

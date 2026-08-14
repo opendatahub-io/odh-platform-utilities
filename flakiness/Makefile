@@ -1,7 +1,7 @@
-GOLANGCI_LINT_VERSION ?= v2.12.2
+override GOLANGCI_LINT_VERSION := v2.12.2
 COVERAGE_FILE ?= cover.out
 
-GOLANGCI_LINT = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+GOLANGCI_LINT = go run "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"
 
 GO_MOD_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 export GOTOOLCHAIN := go$(GO_MOD_VERSION)

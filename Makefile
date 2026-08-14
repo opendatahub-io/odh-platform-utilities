@@ -1,9 +1,9 @@
-GOLANGCI_LINT_VERSION ?= v2.12.2
-CONTROLLER_GEN_VERSION ?= v0.20.1
+override GOLANGCI_LINT_VERSION := v2.12.2
+override CONTROLLER_GEN_VERSION := v0.20.1
 COVERAGE_FILE ?= cover.out
 
-GOLANGCI_LINT = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-CONTROLLER_GEN = go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
+GOLANGCI_LINT = go run "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"
+CONTROLLER_GEN = go run "sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)"
 
 # Pin the toolchain to the exact Go version declared in go.mod so that
 # the race-instrumented stdlib is compiled with the same compiler version
