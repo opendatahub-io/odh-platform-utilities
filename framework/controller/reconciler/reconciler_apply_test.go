@@ -77,15 +77,17 @@ func newApplyTestReconciler(
 		Build()
 
 	r := &Reconciler{
-		Client:                      cli,
-		Scheme:                      s,
-		Recorder:                    recorder,
-		name:                        "test-reconciler",
-		provisioningConditionType:   DefaultProvisioningConditionType,
-		phaseReady:                  DefaultPhaseReady,
-		phaseNotReady:               DefaultPhaseNotReady,
-		skipConditionCleanup:        true,
-		conditionsAggregator:        mustNewAggregator(),
+		Client:                    cli,
+		Scheme:                    s,
+		Recorder:                  recorder,
+		name:                      "test-reconciler",
+		provisioningConditionType: DefaultProvisioningConditionType,
+		phaseReady:                DefaultPhaseReady,
+		phaseNotReady:             DefaultPhaseNotReady,
+		skipConditionCleanup:      true,
+		conditionsAggregator: mustNewAggregator(
+			conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
+		),
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
 		instanceFactory: func() (api.PlatformObject, error) {
