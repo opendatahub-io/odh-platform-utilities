@@ -1,7 +1,7 @@
-GOLANGCI_LINT_VERSION ?= v2.5.0
+override GOLANGCI_LINT_VERSION := v2.12.2
 COVERAGE_FILE ?= cover.out
 
-GOLANGCI_LINT = $(shell which golangci-lint 2>/dev/null)
+GOLANGCI_LINT = go run "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"
 
 GO_MOD_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 export GOTOOLCHAIN := go$(GO_MOD_VERSION)
@@ -13,20 +13,19 @@ all: fmt vet lint test
 
 .PHONY: fmt
 fmt: ## Run gofmt and golangci-lint formatter.
-	gofmt -w .
-	@if [ -n "$(GOLANGCI_LINT)" ]; then "$(GOLANGCI_LINT)" fmt; fi
+	$(GOLANGCI_LINT) fmt
 
 .PHONY: vet
 vet: ## Run go vet.
 	go vet ./...
 
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint.
-	"$(GOLANGCI_LINT)" run
+lint: ## Run golangci-lint.
+	$(GOLANGCI_LINT) run
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint with --fix.
-	"$(GOLANGCI_LINT)" run --fix
+lint-fix: ## Run golangci-lint with --fix.
+	$(GOLANGCI_LINT) run --fix
 
 .PHONY: test
 test: ## Run tests with race detector and coverage.
@@ -44,15 +43,6 @@ verify-tidy: ## Verify go.mod and go.sum are tidy.
 .PHONY: verify-fmt
 verify-fmt: ## Verify code is formatted.
 	@test -z "$$(gofmt -l .)" || (echo "Files not formatted:"; gofmt -l .; exit 1)
-
-##@ Tools
-
-.PHONY: golangci-lint
-golangci-lint: ## Install golangci-lint if not present.
-ifeq ($(GOLANGCI_LINT),)
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-	$(eval GOLANGCI_LINT = $(shell go env GOPATH)/bin/golangci-lint)
-endif
 
 ##@ Help
 

@@ -710,7 +710,7 @@ func TestConfig_Validate_TokenExpiresAt(t *testing.T) {
 				Component: "kserve",
 				GCS:       flakiness.GCSConfig{Bucket: "b", JobPrefixes: []string{"p/"}},
 				Analysis:  flakiness.AnalysisConfig{Threshold: 0.2, WindowDays: 30, MinRuns: 5},
-				Jira: flakiness.JiraConfig{
+				Jira: flakiness.JiraConfig{ //nolint:gosec // test-only placeholder Jira settings
 					APIURL:         "https://jira.example.com",
 					TokenEnv:       "TOKEN",
 					TokenExpiresAt: "2026-12-31T00:00:00Z",

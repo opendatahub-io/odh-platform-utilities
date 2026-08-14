@@ -1,6 +1,7 @@
 package flakiness
 
 import (
+	"slices"
 	"sort"
 	"time"
 )
@@ -228,7 +229,7 @@ func (r *TestRecord) sortedHistory() []RunOutcome {
 
 func countTrailingFailures(sorted []RunOutcome) int {
 	count := 0
-	for i := len(sorted) - 1; i >= 0; i-- {
+	for i := range slices.Backward(sorted) {
 		if !sorted[i].Failed {
 			break
 		}

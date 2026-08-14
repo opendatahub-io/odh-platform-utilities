@@ -35,19 +35,21 @@ var (
 	errDomainEmpty         = errors.New("spec.domain not found or empty")
 )
 
+const configOpenShiftGroup = "config.openshift.io"
+
 //nolint:gochecknoglobals // Immutable GVK constants.
 var (
 	clusterVersionGVK = schema.GroupVersionKind{
-		Group: "config.openshift.io", Version: "v1", Kind: "ClusterVersion",
+		Group: configOpenShiftGroup, Version: "v1", Kind: "ClusterVersion",
 	}
 	infrastructureGVK = schema.GroupVersionKind{
-		Group: "config.openshift.io", Version: "v1", Kind: "Infrastructure",
+		Group: configOpenShiftGroup, Version: "v1", Kind: "Infrastructure",
 	}
 	authenticationGVK = schema.GroupVersionKind{
-		Group: "config.openshift.io", Version: "v1", Kind: "Authentication",
+		Group: configOpenShiftGroup, Version: "v1", Kind: "Authentication",
 	}
 	ingressGVK = schema.GroupVersionKind{
-		Group: "config.openshift.io", Version: "v1", Kind: "Ingress",
+		Group: configOpenShiftGroup, Version: "v1", Kind: "Ingress",
 	}
 	nodeGVK = schema.GroupVersionKind{
 		Group: "", Version: "v1", Kind: "Node",

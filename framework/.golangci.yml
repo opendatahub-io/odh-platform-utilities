@@ -2,6 +2,8 @@ version: "2"
 
 linters:
   default: all
+  enable:
+    - gomodguard_v2
   disable:
     - cyclop
     - depguard
@@ -12,6 +14,7 @@ linters:
     - gochecknoglobals
     - gocognit
     - goconst
+    - gomodguard
     - godoclint
     - godox
     - gomoddirectives
@@ -45,6 +48,12 @@ linters:
       rules:
         - name: unexported-return
           disabled: true
+
+  exclusions:
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - goconst
 
 formatters:
   enable:

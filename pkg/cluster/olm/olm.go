@@ -26,16 +26,18 @@ import (
 // OperatorCondition matching the given prefix is found.
 var ErrOperatorNotInstalled = errors.New("operator not installed")
 
+const operatorFrameworkGroup = "operators.coreos.com"
+
 //nolint:gochecknoglobals // Immutable GVK constants.
 var (
 	operatorConditionGVK = schema.GroupVersionKind{
-		Group: "operators.coreos.com", Version: "v2", Kind: "OperatorCondition",
+		Group: operatorFrameworkGroup, Version: "v2", Kind: "OperatorCondition",
 	}
 	subscriptionGVK = schema.GroupVersionKind{
-		Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription",
+		Group: operatorFrameworkGroup, Version: "v1alpha1", Kind: "Subscription",
 	}
 	catalogSourceGVK = schema.GroupVersionKind{
-		Group: "operators.coreos.com", Version: "v1alpha1", Kind: "CatalogSource",
+		Group: operatorFrameworkGroup, Version: "v1alpha1", Kind: "CatalogSource",
 	}
 )
 
