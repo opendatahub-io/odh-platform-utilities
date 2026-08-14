@@ -11,7 +11,7 @@ import (
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 )
@@ -23,7 +23,7 @@ const (
 type Action struct {
 	fsys                   fs.FS
 	metadataFilePathFn     func(rr *types.ReconciliationRequest) string
-	componentReleaseStatus common.ComponentReleaseStatus
+	componentReleaseStatus api.ComponentReleaseStatus
 }
 
 type ActionOpts func(*Action)
@@ -42,14 +42,14 @@ func WithMetadataFilePath(fn func(rr *types.ReconciliationRequest) string) Actio
 	}
 }
 
-func WithComponentReleaseStatus(status common.ComponentReleaseStatus) ActionOpts {
+func WithComponentReleaseStatus(status api.ComponentReleaseStatus) ActionOpts {
 	return func(a *Action) {
 		a.componentReleaseStatus = status
 	}
 }
 
 func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error {
-	obj, ok := rr.Instance.(common.WithReleases)
+	obj, ok := rr.Instance.(api.WithReleases)
 	if !ok {
 		return fmt.Errorf("resource instance %v is not a WithReleases", rr.Instance)
 	}
@@ -59,7 +59,7 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 		if err != nil {
 			return err
 		}
-		a.componentReleaseStatus = common.ComponentReleaseStatus{Releases: releases}
+		a.componentReleaseStatus = api.ComponentReleaseStatus{Releases: releases}
 	}
 
 	obj.SetReleaseStatus(a.componentReleaseStatus)
@@ -67,7 +67,7 @@ func (a *Action) run(ctx context.Context, rr *types.ReconciliationRequest) error
 	return nil
 }
 
-func (a *Action) render(ctx context.Context, rr *types.ReconciliationRequest) ([]common.ComponentRelease, error) {
+func (a *Action) render(ctx context.Context, rr *types.ReconciliationRequest) ([]api.ComponentRelease, error) {
 	log := logf.FromContext(ctx)
 
 	metadataPath := a.metadataFilePathFn(rr)
