@@ -244,7 +244,13 @@ func NewReconciler[T api.PlatformObject](
 	}
 
 	if cc.conditionsAggregator == nil {
-		aggregator, err := conditions.NewAggregator(DefaultHappyCondition)
+		aggregator, err := conditions.NewAggregator(
+			DefaultHappyCondition,
+			conditions.Dependent(
+				cc.provisioningConditionType,
+				conditions.HealthyWhenTrue,
+			),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid conditions manager configuration: %w", err)
 		}

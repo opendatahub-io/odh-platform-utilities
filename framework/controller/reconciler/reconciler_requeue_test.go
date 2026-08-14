@@ -97,7 +97,7 @@ func newRequeueTestReconciler(t *testing.T, defaultRequeueAfter time.Duration, a
 		phaseReady:                DefaultPhaseReady,
 		phaseNotReady:             DefaultPhaseNotReady,
 		preApplyFailedReason:      "PreConditionFailed",
-		conditionsAggregator:      mustNewAggregator(DefaultHappyCondition),
+		conditionsAggregator:      mustNewAggregator(),
 		defaultRequeueAfter:       defaultRequeueAfter,
 	}
 

@@ -143,7 +143,6 @@ func TestWithConditionAggregator(t *testing.T) {
 		g := NewWithT(t)
 
 		aggregator := mustNewAggregator(
-			api.ConditionTypeReady,
 			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
 		)
 		opt := WithConditionAggregator(aggregator)

@@ -71,7 +71,6 @@ func newPostStatusTestReconciler(
 			actionFn,
 		},
 		conditionsAggregator: mustNewAggregator(
-			DefaultHappyCondition,
 			conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
 		),
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
