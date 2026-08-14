@@ -1,0 +1,46 @@
+name: Auto Request Reviewers
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review]
+
+jobs:
+  request-reviewers:
+    permissions:
+      pull-requests: write
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const team = 'odh-platform-utilities-maintainers';
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number,
+            });
+
+            const alreadyRequested = (pr.requested_teams ?? []).some(
+              (requestedTeam) => requestedTeam.slug === team,
+            );
+            if (alreadyRequested) {
+              core.info(`Review already requested from ${team}`);
+              return;
+            }
+
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number,
+                team_reviewers: [team],
+              });
+            } catch (err) {
+              core.warning(`Could not request team review: ${err.message}`);
+            }
