@@ -122,41 +122,34 @@ func TestReconcilerBuilder_WithActionE(t *testing.T) {
 	})
 }
 
-func TestWithConditionAggregation(t *testing.T) {
+func TestWithConditionAggregator(t *testing.T) {
 	t.Parallel()
 
-	t.Run("stores configuration without panicking", func(t *testing.T) {
+	t.Run("stores nil aggregator without panicking", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		opt := WithConditionAggregation(
-			api.ConditionTypeReady,
-			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
-			conditions.Dependent("DependencyReady", conditions.HealthyWhenFalse),
-		)
+		opt := WithConditionAggregator(nil)
 
 		reconciler := &Reconciler{}
 		g.Expect(func() {
 			opt(reconciler)
 		}).ToNot(Panic())
-		g.Expect(reconciler.conditionsManagerHappy).To(Equal(api.ConditionTypeReady))
-		g.Expect(reconciler.conditionsManagerDependents).To(HaveLen(2))
+		g.Expect(reconciler.conditionsAggregator).To(BeNil())
 	})
 
-	t.Run("stores valid configuration", func(t *testing.T) {
+	t.Run("stores provided aggregator", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		opt := WithConditionAggregation(
+		aggregator := mustNewAggregator(
 			api.ConditionTypeReady,
 			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
 		)
+		opt := WithConditionAggregator(aggregator)
 
 		reconciler := &Reconciler{}
 		opt(reconciler)
-		g.Expect(reconciler.conditionsManagerHappy).To(Equal(api.ConditionTypeReady))
-		g.Expect(reconciler.conditionsManagerDependents).To(ConsistOf(
-			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
-		))
+		g.Expect(reconciler.conditionsAggregator).To(BeIdenticalTo(aggregator))
 	})
 }

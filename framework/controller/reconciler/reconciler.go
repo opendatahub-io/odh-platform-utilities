@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"sync"
 	"time"
 
@@ -79,13 +78,11 @@ type PostStatusFn func(ctx context.Context, rr *types.ReconciliationRequest, isH
 
 type ReconcilerOpt func(*Reconciler)
 
-func WithConditionAggregation(
-	happy api.ConditionType,
-	dependents ...conditions.DependentDefinition,
-) ReconcilerOpt {
+// WithConditionAggregator sets the condition aggregator used to compute and
+// maintain status conditions during reconciliation.
+func WithConditionAggregator(aggregator *conditions.Aggregator) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
-		reconciler.conditionsManagerHappy = happy
-		reconciler.conditionsManagerDependents = slices.Clone(dependents)
+		reconciler.conditionsAggregator = aggregator
 	}
 }
 
@@ -205,8 +202,6 @@ type Reconciler struct {
 	preApplyFn                  PreApplyFn
 	postStatusFn                PostStatusFn
 	instanceFactory             func() (api.PlatformObject, error)
-	conditionsManagerHappy      api.ConditionType
-	conditionsManagerDependents []conditions.DependentDefinition
 	conditionsAggregator        *conditions.Aggregator
 	gvks                        map[schema.GroupVersionKind]gvkInfo
 	dynamicGvks                 sync.Map
@@ -231,7 +226,6 @@ func NewReconciler[T api.PlatformObject](
 		preApplyFailedReason:      "PreConditionFailed",
 		phaseReady:                DefaultPhaseReady,
 		phaseNotReady:             DefaultPhaseNotReady,
-		conditionsManagerHappy:    DefaultHappyCondition,
 		instanceFactory: func() (api.PlatformObject, error) {
 			t := reflect.TypeOf(object).Elem()
 			res, ok := reflect.New(t).Interface().(T)
@@ -249,15 +243,13 @@ func NewReconciler[T api.PlatformObject](
 		opt(&cc)
 	}
 
-	aggregator, err := conditions.NewAggregator(
-		cc.conditionsManagerHappy,
-		cc.conditionsManagerDependents...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("invalid conditions manager configuration: %w", err)
+	if cc.conditionsAggregator == nil {
+		aggregator, err := conditions.NewAggregator(DefaultHappyCondition)
+		if err != nil {
+			return nil, fmt.Errorf("invalid conditions manager configuration: %w", err)
+		}
+		cc.conditionsAggregator = aggregator
 	}
-
-	cc.conditionsAggregator = aggregator
 
 	discoveryCli, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {

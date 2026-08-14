@@ -160,6 +160,8 @@ func ReconcilerFor[T api.PlatformObject](mgr ctrl.Manager, object T, opts ...bui
 	return &crb
 }
 
+// WithConditions appends dependent conditions to the builder configuration.
+// The builder validates and assembles the final condition aggregator during Build().
 func (b *ReconcilerBuilder[T]) WithConditions(
 	dependents ...conditions.DependentDefinition,
 ) *ReconcilerBuilder[T] {
@@ -439,8 +441,16 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 		return nil, errors.New("invalid type for object")
 	}
 
+	aggregator, err := conditions.NewAggregator(
+		b.happyCondition,
+		b.dependentConditions...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid conditions manager configuration: %w", err)
+	}
+
 	opts := []ReconcilerOpt{
-		WithConditionAggregation(b.happyCondition, b.dependentConditions...),
+		WithConditionAggregator(aggregator),
 	}
 	if b.dynamicOwnership {
 		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
