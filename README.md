@@ -60,6 +60,7 @@ pipeline out of the box.
 | `pkg/render` | Shared types (`ReconciliationRequest`, `Fn`), Prometheus metrics |
 | `pkg/resources` | Kubernetes resource helpers (`Decode`, `SetLabels`, `SetAnnotations`, `UnstructuredList`) |
 | `pkg/template` | Template function map (`indent`, `nindent`, `toYaml`) |
+| `pkg/tls` | OpenShift TLS profile resolution: APIServer fetch, `crypto/tls.Config` mapping, proxy flag strings, profile watcher |
 
 ## Framework Module
 
@@ -240,6 +241,31 @@ so they do not pull in `github.com/openshift/api` or
 See [pkg/cluster/AGENTS.md](./pkg/cluster/AGENTS.md) for detailed
 documentation on the two-layer model, error behavior, and dependency
 strategy.
+
+### TLS profile resolution
+
+Module controllers that serve webhooks/metrics or stamp proxy TLS flags can
+resolve the cluster profile from `apiservers.config.openshift.io/cluster`.
+This is the one root-module package that imports `github.com/openshift/api`.
+Register `configv1.Install(scheme)` and grant get/list/watch on that resource.
+
+```go
+import pkgtls "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
+
+result, err := pkgtls.Load(ctx, client)
+if err != nil {
+    // unexpected error: refuse to start
+}
+tlsOpts, _ := pkgtls.ConfigFromProfile(result.Spec)
+
+minVersion, ciphers, err := pkgtls.FromAPIServer(ctx, client, pkgtls.FormatShort)
+```
+
+On vanilla Kubernetes, `Load` and `FromAPIServer` fall back to the Intermediate
+profile. Register `SecurityProfileWatcher` only when `result.Watchable` is true.
+
+See [pkg/tls/AGENTS.md](./pkg/tls/AGENTS.md) for fallback policy and the
+OpenShift API exception.
 ## Manifest Rendering
 
 Module controllers embed their own manifests and use these utilities to render

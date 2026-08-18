@@ -78,6 +78,10 @@ const (
 	// Authentication CR on OpenShift.
 	ClusterAuthenticationObj = "cluster"
 
+	// ClusterAPIServerObj is the well-known name of the cluster-scope
+	// APIServer CR on OpenShift (config.openshift.io/v1).
+	ClusterAPIServerObj = "cluster"
+
 	// OpenShiftVersionObj is the well-known name of the ClusterVersion CR.
 	OpenShiftVersionObj = "version"
 )
