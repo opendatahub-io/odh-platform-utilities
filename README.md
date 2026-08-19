@@ -264,8 +264,11 @@ minVersion, ciphers, err := pkgtls.FromAPIServer(ctx, client, pkgtls.FormatShort
 On vanilla Kubernetes, `Load` and `FromAPIServer` fall back to the Intermediate
 profile. Register `SecurityProfileWatcher` only when `result.Watchable` is true.
 
-See [pkg/tls/AGENTS.md](./pkg/tls/AGENTS.md) for fallback policy and the
-OpenShift API exception.
+See [docs/module-tls.md](./docs/module-tls.md) for the expected module wiring
+(scheme, RBAC, manager startup, proxy flags). See
+[pkg/tls/AGENTS.md](./pkg/tls/AGENTS.md) for fallback policy and the OpenShift
+API exception.
+
 ## Manifest Rendering
 
 Module controllers embed their own manifests and use these utilities to render

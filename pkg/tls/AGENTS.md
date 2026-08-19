@@ -41,6 +41,9 @@ follow the cluster profile.
 - RBAC: get/list/watch `apiservers.config.openshift.io`
 - Register `SecurityProfileWatcher` only when `Load` reports `Watchable`
 
+Module-facing walkthrough (scheme, RBAC, `main.go`, proxy flags):
+[docs/module-tls.md](../../docs/module-tls.md).
+
 ## Conventions
 
 - Tests use the `_test` package suffix, `t.Parallel()`, testify assertions

@@ -46,4 +46,6 @@
 //
 // On vanilla Kubernetes, Load falls back to the Intermediate profile and
 // Watchable is false. FromAPIServer does the same for proxy flag strings.
+//
+// See docs/module-tls.md for the expected module wiring.
 package tls
