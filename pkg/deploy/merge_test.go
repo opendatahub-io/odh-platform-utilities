@@ -106,6 +106,144 @@ func TestMergeDeploymentsRemove(t *testing.T) {
 	g.Expect(hasResources).Should(BeFalse())
 }
 
+func TestMergeDeploymentsProbePrecedence(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		field       string
+		livePath    string // "" = probe not set on live container
+		desiredPath string // "" = probe not set on desired container
+		wantPath    string // expected probe path in desired after merge
+	}{
+		{
+			name: "copies probe from live when desired has none", field: "livenessProbe",
+			livePath: "/healthz", wantPath: "/healthz",
+		},
+		{
+			name: "leaves rendered probe untouched when live has none", field: "readinessProbe",
+			desiredPath: "/readyz", wantPath: "/readyz",
+		},
+		{
+			name: "desired probe wins when both set", field: "livenessProbe",
+			livePath: "/live", desiredPath: "/desired", wantPath: "/desired",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			live := toUnstructured(g, &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{containerWithProbe(tc.field, tc.livePath)},
+						},
+					},
+				},
+			})
+
+			desired := toUnstructured(g, &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{containerWithProbe(tc.field, tc.desiredPath)},
+						},
+					},
+				},
+			})
+
+			err := deploy.MergeDeployments(live, desired)
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			containers, _, err := unstructured.NestedSlice(desired.Object, "spec", "template", "spec", "containers")
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			cm, ok := containers[0].(map[string]any)
+			g.Expect(ok).Should(BeTrue())
+
+			path, found, err := unstructured.NestedString(cm, tc.field, "httpGet", "path")
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(found).Should(BeTrue())
+			g.Expect(path).Should(Equal(tc.wantPath))
+		})
+	}
+}
+
+func TestMergeDeploymentsCrossProbePreservation(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	probe := func(path string) *corev1.Probe {
+		return &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: path}}}
+	}
+
+	live := toUnstructured(g, &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "test", LivenessProbe: probe("/live")}},
+				},
+			},
+		},
+	})
+
+	desired := toUnstructured(g, &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "test", ReadinessProbe: probe("/ready")}},
+				},
+			},
+		},
+	})
+
+	err := deploy.MergeDeployments(live, desired)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	containers, _, err := unstructured.NestedSlice(desired.Object, "spec", "template", "spec", "containers")
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	cm, ok := containers[0].(map[string]any)
+	g.Expect(ok).Should(BeTrue())
+
+	// live liveness must be copied in
+	livePath, found, err := unstructured.NestedString(cm, "livenessProbe", "httpGet", "path")
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(found).Should(BeTrue(), "livenessProbe should be copied from live")
+	g.Expect(livePath).Should(Equal("/live"))
+
+	// desired readiness must be untouched
+	readyPath, found, err := unstructured.NestedString(cm, "readinessProbe", "httpGet", "path")
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(found).Should(BeTrue(), "readinessProbe should be preserved from desired")
+	g.Expect(readyPath).Should(Equal("/ready"))
+}
+
+// containerWithProbe builds a container named "test" with the given probe
+// field set to an HTTP GET probe at path, or unset when path is "".
+func containerWithProbe(field, path string) corev1.Container {
+	c := corev1.Container{Name: "test"}
+	if path == "" {
+		return c
+	}
+
+	probe := &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: path}}}
+
+	switch field {
+	case "livenessProbe":
+		c.LivenessProbe = probe
+	case "readinessProbe":
+		c.ReadinessProbe = probe
+	case "startupProbe":
+		c.StartupProbe = probe
+	}
+
+	return c
+}
+
 func TestMergeObservabilityResourcesOverride(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
