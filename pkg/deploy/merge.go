@@ -20,16 +20,26 @@ var (
 	ErrFieldNotMap = errors.New("field is not a map")
 )
 
-// MergeDeployments preserves user-set container resources and replicas when
-// SSA-applying updated Deployment manifests. Without this merge, SSA would
-// reclaim ownership of these fields and reset user customisations.
+// MergeDeployments merges fields from the existing (live) Deployment into the
+// desired (rendered) Deployment before SSA apply, preserving user-tuned values
+// that SSA would otherwise overwrite. Two merge policies apply:
+//
+//   - resources and replicas: live value always wins. An absent resources map
+//     on live deletes desired resources.
+//
+//   - probes (liveness, readiness, startup): fill-if-absent. A probe present
+//     in desired is never overwritten. A probe absent from desired is copied
+//     from live if one exists there. Because Kubernetes has no empty-probe
+//     sentinel, a probe set on a live Deployment cannot be removed by omitting
+//     it from the rendered manifest — to drop a probe, ship a replacement in
+//     the manifest or annotate the Deployment with opendatahub.io/managed=true.
 //
 // Fields merged from existing -> desired:
-//   - spec.template.spec.containers[].resources  (matched by container name)
+//   - spec.replicas
+//   - spec.template.spec.containers[].resources  (matched by container name; live always wins)
 //   - spec.template.spec.containers[].livenessProbe  (only when not set in desired)
 //   - spec.template.spec.containers[].readinessProbe (only when not set in desired)
 //   - spec.template.spec.containers[].startupProbe   (only when not set in desired)
-//   - spec.replicas
 func MergeDeployments(existing *unstructured.Unstructured, desired *unstructured.Unstructured) error {
 	err := mergeContainerResources(existing, desired)
 	if err != nil {
@@ -138,10 +148,11 @@ func applyResourceMap(containers []any, resourcesByName map[string]any) {
 	}
 }
 
-// Note: probes absent from desired are preserved from live indefinitely —
-// the same behaviour as container resources. Kubernetes has no empty-probe
-// sentinel, so absence and explicit removal are indistinguishable here.
-// A probe set in the live cluster cannot be removed via the rendered manifest.
+// Probes use fill-if-absent semantics: a probe present in desired is never
+// overwritten; a probe absent from desired is copied from live if one exists.
+// This differs from resource merging, where live always wins and an empty live
+// map deletes desired resources. Because Kubernetes has no empty-probe sentinel,
+// a live probe cannot be removed by omitting it from the rendered manifest.
 func mergeContainerProbes(existing, desired *unstructured.Unstructured) error {
 	sourceContainers, err := extractContainers(existing.Object, containersPath())
 	if err != nil {
