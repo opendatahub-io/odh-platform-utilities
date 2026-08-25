@@ -1,6 +1,6 @@
 module github.com/opendatahub-io/odh-platform-utilities/framework
 
-go 1.25.7
+go 1.25.12
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -17,6 +17,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/xid v1.6.0
 	github.com/spf13/afero v1.15.0
+	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.4
 	k8s.io/apiextensions-apiserver v0.35.4
