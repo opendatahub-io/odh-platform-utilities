@@ -650,9 +650,10 @@ reconciler.ReconcilerFor(mgr, &MyModuleCR{}).
     // ...
 ```
 
-Finalizer actions run sequentially. A `StopError` from any finalizer action
-halts the remaining finalizer actions without returning an error (graceful
-stop for progressive cleanup across reconciles).
+Finalizer actions run sequentially. See the framework's
+[action-error semantics](../framework/docs/action-error-semantics.md) for the
+terminal, failure, advisory, and delayed-requeue contract used by finalizer
+actions.
 
 ### Trade-offs
 
@@ -916,7 +917,10 @@ reconciler.WithPreApplyFn(func(ctx context.Context, rr *types.ReconciliationRequ
 ```
 
 When `preApplyFn` returns `true`, all actions are skipped and
-`ProvisioningSucceeded` is set to `False` with a configurable reason.
+`ProvisioningSucceeded` is set to `False` with a configurable reason. The
+reconciler emits a `ProvisioningPaused` event and requeues after 30 seconds by
+default. Use `WithPreApplyRequeueAfter` to choose a different interval; a
+non-positive value uses normal controller-runtime error backoff instead.
 
 ### Release Metadata
 
@@ -1284,7 +1288,9 @@ func migrateDatabase(ctx context.Context, rr *types.ReconciliationRequest) error
                 conditions.WithReason("MigrationFailed"),
                 conditions.WithError(err),
             )
-            return errors.NewStopError("migration failed: %v", err)
+            // Return a terminal action error when this migration cannot
+            // safely continue. See the framework action-error semantics.
+            return errors.NewActionErrorf("migration failed: %w", err).Terminal()
         }
     }
     return nil
@@ -1306,6 +1312,7 @@ For additional control, use the `preApplyFn` to gate upgrades:
 reconciler.WithPreApplyFn(func(ctx context.Context, rr *types.ReconciliationRequest) bool {
     return upgradeInProgress(rr.Instance) && !migrationComplete(rr.Instance)
 })
+reconciler.WithPreApplyRequeueAfter(time.Minute)
 ```
 
 ### Admin Acknowledgment Gates
