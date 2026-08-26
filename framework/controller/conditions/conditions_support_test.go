@@ -12,8 +12,7 @@ import (
 )
 
 func TestSetStatusCondition_LastTransitionTime(t *testing.T) {
-	a := fakeAccessor{}
-	a.conditions = make([]api.Condition, 0)
+	t.Parallel()
 
 	ref := api.Condition{
 		Type:   "foo",
@@ -21,7 +20,10 @@ func TestSetStatusCondition_LastTransitionTime(t *testing.T) {
 	}
 
 	t.Run("LastTransitionTime should be set if not present", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
+		a := fakeAccessor{conditions: make([]api.Condition, 0)}
 
 		pre := conditions.FindStatusCondition(&a, "foo")
 		g.Expect(pre).Should(BeNil())
@@ -37,7 +39,11 @@ func TestSetStatusCondition_LastTransitionTime(t *testing.T) {
 	})
 
 	t.Run("LastTransitionTime should not change when status is not changing", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
+		a := fakeAccessor{conditions: make([]api.Condition, 0)}
+		g.Expect(conditions.SetStatusCondition(&a, ref)).Should(BeTrue())
 
 		pre := conditions.FindStatusCondition(&a, "foo")
 		g.Expect(pre).Should(And(
@@ -55,8 +61,44 @@ func TestSetStatusCondition_LastTransitionTime(t *testing.T) {
 		))
 	})
 
-	t.Run("LastTransitionTime should change when status is changing", func(t *testing.T) {
+	t.Run("LastTransitionTime should not change when only message changes", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
+		a := fakeAccessor{conditions: make([]api.Condition, 0)}
+		g.Expect(conditions.SetStatusCondition(&a, ref)).Should(BeTrue())
+
+		pre := conditions.FindStatusCondition(&a, "foo")
+		g.Expect(pre).Should(And(
+			Not(BeNil()),
+			HaveField("LastTransitionTime", Not(BeZero())),
+		))
+
+		nc := api.Condition{
+			Type:    "foo",
+			Status:  metav1.ConditionFalse,
+			Reason:  "updated reason",
+			Message: "updated message",
+		}
+
+		g.Expect(conditions.SetStatusCondition(&a, nc)).Should(BeTrue())
+		g.Expect(a.conditions).Should(HaveLen(1))
+
+		post := conditions.FindStatusCondition(&a, "foo")
+		g.Expect(post).Should(And(
+			Not(BeNil()),
+			HaveField("LastTransitionTime", Equal(pre.LastTransitionTime)),
+			HaveField("Reason", Equal(nc.Reason)),
+			HaveField("Message", Equal(nc.Message)),
+		))
+	})
+
+	t.Run("LastTransitionTime should change when status is changing", func(t *testing.T) {
+		t.Parallel()
+
+		g := NewWithT(t)
+		a := fakeAccessor{conditions: make([]api.Condition, 0)}
+		g.Expect(conditions.SetStatusCondition(&a, ref)).Should(BeTrue())
 
 		pre := conditions.FindStatusCondition(&a, "foo")
 		g.Expect(pre).Should(And(
@@ -82,6 +124,8 @@ func TestSetStatusCondition_LastTransitionTime(t *testing.T) {
 }
 
 func TestSetStatusCondition_Update(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	a := fakeAccessor{}

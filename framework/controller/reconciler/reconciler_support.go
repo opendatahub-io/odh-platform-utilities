@@ -12,6 +12,7 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/dynamicownership"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/handlers"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/predicates"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/predicates/label"
@@ -114,8 +115,8 @@ type ReconcilerBuilder[T api.PlatformObject] struct {
 	actions                      []actions.Fn
 	finalizers                   []actions.Fn
 	errors                       error
-	happyCondition               string
-	dependentConditions          []string
+	happyCondition               api.ConditionType
+	dependentConditions          []conditions.DependentDefinition
 	dynamicOwnership             bool
 	excludeFromOwnership         []schema.GroupVersionKind
 	dynamicOwnershipGVKPreds     map[schema.GroupVersionKind][]predicate.Predicate
@@ -129,11 +130,13 @@ type ReconcilerBuilder[T api.PlatformObject] struct {
 
 func ReconcilerFor[T api.PlatformObject](mgr ctrl.Manager, object T, opts ...builder.ForOption) *ReconcilerBuilder[T] {
 	crb := ReconcilerBuilder[T]{
-		mgr:                 mgr,
-		happyCondition:      DefaultHappyCondition,
-		dependentConditions: []string{DefaultProvisioningConditionType},
-		instanceAnnotation:  DefaultAnnotationPrefix + metadata.SuffixInstanceName,
-		partOfLabel:         DefaultPartOfLabel,
+		mgr:            mgr,
+		happyCondition: DefaultHappyCondition,
+		dependentConditions: []conditions.DependentDefinition{
+			conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
+		},
+		instanceAnnotation: DefaultAnnotationPrefix + metadata.SuffixInstanceName,
+		partOfLabel:        DefaultPartOfLabel,
 	}
 
 	gvk, err := mgr.GetClient().GroupVersionKindFor(object)
@@ -157,7 +160,11 @@ func ReconcilerFor[T api.PlatformObject](mgr ctrl.Manager, object T, opts ...bui
 	return &crb
 }
 
-func (b *ReconcilerBuilder[T]) WithConditions(dependents ...string) *ReconcilerBuilder[T] {
+// WithConditions appends dependent conditions to the builder configuration.
+// The builder validates and assembles the final condition aggregator during Build().
+func (b *ReconcilerBuilder[T]) WithConditions(
+	dependents ...conditions.DependentDefinition,
+) *ReconcilerBuilder[T] {
 	b.dependentConditions = append(b.dependentConditions, dependents...)
 	return b
 }
@@ -434,8 +441,16 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 		return nil, errors.New("invalid type for object")
 	}
 
+	aggregator, err := conditions.NewAggregator(
+		b.happyCondition,
+		b.dependentConditions...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid conditions manager configuration: %w", err)
+	}
+
 	opts := []ReconcilerOpt{
-		WithConditionsManagerFactory(b.happyCondition, b.dependentConditions...),
+		WithConditionAggregator(aggregator),
 	}
 	if b.dynamicOwnership {
 		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))

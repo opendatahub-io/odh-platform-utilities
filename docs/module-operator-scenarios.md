@@ -51,6 +51,7 @@ import (
     "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/gc"
     renderhelm "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/helm"
     "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/deployments"
+    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 )
 
 func SetupController(mgr ctrl.Manager, release api.Release) error {
@@ -59,7 +60,9 @@ func SetupController(mgr ctrl.Manager, release api.Release) error {
             reconciler.WithRelease(release),
             reconciler.WithFinalizerName("mymodule.opendatahub.io/finalizer"),
         ).
-        WithConditions("DeploymentsAvailable").
+        WithConditions(
+            conditions.Dependent(deployments.DefaultConditionType, conditions.HealthyWhenTrue),
+        ).
         WithAction(initAction).                      // populate rr.HelmCharts
         WithAction(renderhelm.NewAction()).           // render → rr.Resources
         WithAction(deploy.NewAction(                  // apply to cluster

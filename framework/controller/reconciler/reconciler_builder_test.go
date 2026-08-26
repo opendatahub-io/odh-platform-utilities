@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 
 	. "github.com/onsi/gomega"
@@ -99,5 +101,54 @@ func TestReconcilerBuilder_WithActionE(t *testing.T) {
 		b.WithActionE(nil, errors.New("action init failed"))
 		_, buildErr := b.Build(context.Background())
 		g.Expect(buildErr).To(MatchError(ContainSubstring("action init failed")))
+	})
+
+	t.Run("invalid conditions configuration surfaces in Build()", func(t *testing.T) {
+		g := NewWithT(t)
+		b := &ReconcilerBuilder[*testPlatformObject]{
+			input: forInput{
+				object: newTestPlatformObject(testGVKDashboard),
+				gvk:    testGVKDashboard,
+			},
+			happyCondition: api.ConditionTypeReady,
+			dependentConditions: []conditions.DependentDefinition{
+				conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
+				conditions.Dependent("DependencyReady", conditions.HealthyWhenFalse),
+			},
+		}
+
+		_, buildErr := b.Build(context.Background())
+		g.Expect(buildErr).To(MatchError(ContainSubstring("invalid conditions manager configuration")))
+	})
+}
+
+func TestWithConditionAggregator(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stores nil aggregator without panicking", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		opt := WithConditionAggregator(nil)
+
+		reconciler := &Reconciler{}
+		g.Expect(func() {
+			opt(reconciler)
+		}).ToNot(Panic())
+		g.Expect(reconciler.conditionsAggregator).To(BeNil())
+	})
+
+	t.Run("stores provided aggregator", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		aggregator := mustNewAggregator(
+			conditions.Dependent("DependencyReady", conditions.HealthyWhenTrue),
+		)
+		opt := WithConditionAggregator(aggregator)
+
+		reconciler := &Reconciler{}
+		opt(reconciler)
+		g.Expect(reconciler.conditionsAggregator).To(BeIdenticalTo(aggregator))
 	})
 }

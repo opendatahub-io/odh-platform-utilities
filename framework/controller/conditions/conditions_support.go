@@ -22,9 +22,6 @@ func SetStatusCondition(a api.ConditionsAccessor, newCondition api.Condition) bo
 	})
 
 	if idx == -1 {
-		if newCondition.LastTransitionTime.IsZero() {
-			newCondition.LastTransitionTime = metav1.NewTime(time.Now())
-		}
 		conditions = append(conditions, newCondition)
 		a.SetConditions(conditions)
 		return true
@@ -34,6 +31,7 @@ func SetStatusCondition(a api.ConditionsAccessor, newCondition api.Condition) bo
 		return false
 	}
 
+	oldTransitionTime := conditions[idx].LastTransitionTime
 	updateTransitionTime := conditions[idx].Status != newCondition.Status
 
 	conditions[idx] = newCondition
@@ -45,6 +43,8 @@ func SetStatusCondition(a api.ConditionsAccessor, newCondition api.Condition) bo
 		if conditions[idx].LastTransitionTime.IsZero() {
 			conditions[idx].LastTransitionTime = metav1.NewTime(time.Now())
 		}
+	} else {
+		conditions[idx].LastTransitionTime = oldTransitionTime
 	}
 
 	a.SetConditions(conditions)

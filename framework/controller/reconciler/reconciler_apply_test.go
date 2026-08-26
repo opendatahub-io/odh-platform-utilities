@@ -13,6 +13,7 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -84,9 +85,9 @@ func newApplyTestReconciler(
 		phaseReady:                DefaultPhaseReady,
 		phaseNotReady:             DefaultPhaseNotReady,
 		skipConditionCleanup:      true,
-		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, DefaultHappyCondition)
-		},
+		conditionsAggregator: mustNewAggregator(
+			conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
+		),
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
 		instanceFactory: func() (api.PlatformObject, error) {
@@ -200,6 +201,31 @@ func TestApply(t *testing.T) { //nolint:funlen
 			}
 		})
 	}
+}
+
+func TestNewReconciler_DefaultAggregatorTracksProvisioning(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	r, err := NewReconciler[*conditionAwarePlatformObject](
+		newTestManager(),
+		"test-reconciler",
+		newConditionAwareObject(),
+	)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	r.Actions = append(r.Actions, func(_ context.Context, _ *types.ReconciliationRequest) error {
+		return errors.New("action failed")
+	})
+
+	obj := newConditionAwareObject()
+	_, err = r.apply(t.Context(), obj)
+	g.Expect(err).Should(MatchError(ContainSubstring("provisioning failed")))
+
+	ready := conditions.FindStatusCondition(obj, string(DefaultHappyCondition))
+	g.Expect(ready).ToNot(BeNil())
+	g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(obj.GetStatus().Phase).To(Equal(DefaultPhaseNotReady))
 }
 
 func TestReconcile(t *testing.T) {

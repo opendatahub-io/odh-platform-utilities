@@ -33,8 +33,8 @@ import (
 
 const (
 	DefaultFinalizerName             = "platform.opendatahub.io/finalizer"
-	DefaultHappyCondition            = "Ready"
-	DefaultProvisioningConditionType = "ProvisioningSucceeded"
+	DefaultHappyCondition            = api.ConditionTypeReady
+	DefaultProvisioningConditionType = api.ConditionTypeProvisioningSucceeded
 	DefaultPhaseReady                = "Ready"
 	DefaultPhaseNotReady             = "Not Ready"
 )
@@ -78,11 +78,11 @@ type PostStatusFn func(ctx context.Context, rr *types.ReconciliationRequest, isH
 
 type ReconcilerOpt func(*Reconciler)
 
-func WithConditionsManagerFactory(happy string, dependents ...string) ReconcilerOpt {
+// WithConditionAggregator sets the condition aggregator used to compute and
+// maintain status conditions during reconciliation.
+func WithConditionAggregator(aggregator *conditions.Aggregator) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
-		reconciler.conditionsManagerFactory = func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, happy, dependents...)
-		}
+		reconciler.conditionsAggregator = aggregator
 	}
 }
 
@@ -101,7 +101,7 @@ func WithFinalizerName(name string) ReconcilerOpt {
 }
 
 // WithProvisioningConditionType sets the condition type used for provisioning status.
-func WithProvisioningConditionType(conditionType string) ReconcilerOpt {
+func WithProvisioningConditionType(conditionType api.ConditionType) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
 		reconciler.provisioningConditionType = conditionType
 	}
@@ -195,14 +195,14 @@ type Reconciler struct {
 
 	name                        string
 	finalizerName               string
-	provisioningConditionType   string
+	provisioningConditionType   api.ConditionType
 	preApplyFailedReason        string
 	phaseReady                  string
 	phaseNotReady               string
 	preApplyFn                  PreApplyFn
 	postStatusFn                PostStatusFn
 	instanceFactory             func() (api.PlatformObject, error)
-	conditionsManagerFactory    func(api.ConditionsAccessor) *conditions.Manager
+	conditionsAggregator        *conditions.Aggregator
 	gvks                        map[schema.GroupVersionKind]gvkInfo
 	dynamicGvks                 sync.Map
 	dynamicOwnershipEnabled     bool
@@ -213,7 +213,50 @@ type Reconciler struct {
 }
 
 // NewReconciler creates a new reconciler for the given type.
-func NewReconciler[T api.PlatformObject](mgr manager.Manager, name string, object T, opts ...ReconcilerOpt) (*Reconciler, error) {
+func NewReconciler[T api.PlatformObject](
+	mgr manager.Manager,
+	name string,
+	object T,
+	opts ...ReconcilerOpt,
+) (*Reconciler, error) {
+	cc := Reconciler{
+		name:                      name,
+		finalizerName:             DefaultFinalizerName,
+		provisioningConditionType: DefaultProvisioningConditionType,
+		preApplyFailedReason:      "PreConditionFailed",
+		phaseReady:                DefaultPhaseReady,
+		phaseNotReady:             DefaultPhaseNotReady,
+		instanceFactory: func() (api.PlatformObject, error) {
+			t := reflect.TypeOf(object).Elem()
+			res, ok := reflect.New(t).Interface().(T)
+			if !ok {
+				return res, fmt.Errorf("unable to construct instance of %v", t)
+			}
+
+			return res, nil
+		},
+		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
+		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
+	}
+
+	for _, opt := range opts {
+		opt(&cc)
+	}
+
+	if cc.conditionsAggregator == nil {
+		aggregator, err := conditions.NewAggregator(
+			DefaultHappyCondition,
+			conditions.Dependent(
+				cc.provisioningConditionType,
+				conditions.HealthyWhenTrue,
+			),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid conditions manager configuration: %w", err)
+		}
+		cc.conditionsAggregator = aggregator
+	}
+
 	discoveryCli, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, fmt.Errorf("unable to construct a Discovery client: %w", err)
@@ -231,41 +274,14 @@ func NewReconciler[T api.PlatformObject](mgr manager.Manager, name string, objec
 		cl = frameworkclient.New(cl)
 	}
 
-	cc := Reconciler{
-		Client:            cl,
-		Scheme:            mgr.GetScheme(),
-		Log:               ctrl.Log.WithName("controllers").WithName(name),
-		Recorder:          mgr.GetEventRecorder(name),
-		ManifestsBasePath: getManifestsBasePath(mgr),
-		ChartsBasePath:    getChartsBasePath(mgr),
-
-		name:                      name,
-		finalizerName:             DefaultFinalizerName,
-		provisioningConditionType: DefaultProvisioningConditionType,
-		preApplyFailedReason:      "PreConditionFailed",
-		phaseReady:                DefaultPhaseReady,
-		phaseNotReady:             DefaultPhaseNotReady,
-		instanceFactory: func() (api.PlatformObject, error) {
-			t := reflect.TypeOf(object).Elem()
-			res, ok := reflect.New(t).Interface().(T)
-			if !ok {
-				return res, fmt.Errorf("unable to construct instance of %v", t)
-			}
-
-			return res, nil
-		},
-		conditionsManagerFactory: func(accessor api.ConditionsAccessor) *conditions.Manager {
-			return conditions.NewManager(accessor, DefaultHappyCondition)
-		},
-		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
-		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
-		dynamicClient:               dynamicCli,
-		discoveryClient:             discoveryCli,
-	}
-
-	for _, opt := range opts {
-		opt(&cc)
-	}
+	cc.Client = cl
+	cc.Scheme = mgr.GetScheme()
+	cc.Log = ctrl.Log.WithName("controllers").WithName(name)
+	cc.Recorder = mgr.GetEventRecorder(name)
+	cc.ManifestsBasePath = getManifestsBasePath(mgr)
+	cc.ChartsBasePath = getChartsBasePath(mgr)
+	cc.dynamicClient = dynamicCli
+	cc.discoveryClient = discoveryCli
 
 	return &cc, nil
 }
@@ -420,7 +436,7 @@ func (r *Reconciler) delete(ctx context.Context, res api.PlatformObject) error {
 		Client:            r.Client,
 		Controller:        r,
 		Instance:          res,
-		Conditions:        r.conditionsManagerFactory(res),
+		Conditions:        conditions.NewManager(res, r.conditionsAggregator),
 		Release:           r.Release,
 		ManifestsBasePath: r.ManifestsBasePath,
 		ChartsBasePath:    r.ChartsBasePath,
@@ -463,7 +479,7 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 		Client:            r.Client,
 		Controller:        r,
 		Instance:          res,
-		Conditions:        r.conditionsManagerFactory(res),
+		Conditions:        conditions.NewManager(res, r.conditionsAggregator),
 		Release:           r.Release,
 		ManifestsBasePath: r.ManifestsBasePath,
 		ChartsBasePath:    r.ChartsBasePath,
@@ -536,7 +552,7 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	is := rr.Instance.GetStatus()
 	is.Phase = r.phaseNotReady
 
-	rr.Conditions.RecomputeHappiness("")
+	rr.Conditions.RecomputeHappiness()
 
 	rr.Conditions.Sort()
 

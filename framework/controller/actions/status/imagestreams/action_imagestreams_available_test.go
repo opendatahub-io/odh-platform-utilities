@@ -62,6 +62,15 @@ func (f *fakeInstance) DeepCopyObject() runtime.Object {
 	return &o
 }
 
+func newConditionsManager(accessor fwapi.ConditionsAccessor) *conditions.Manager {
+	aggregator, err := conditions.NewAggregator(fwapi.ConditionTypeReady)
+	if err != nil {
+		panic(err)
+	}
+
+	return conditions.NewManager(accessor, aggregator)
+}
+
 func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = imagev1.Install(s)
@@ -123,13 +132,13 @@ func TestImageStreamsNoImageStreams(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status": Equal(metav1.ConditionTrue),
 			}),
@@ -169,12 +178,12 @@ func TestImageStreamsNoMatchErrorVanillaK8s(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
-	cond := conditions.FindStatusCondition(rr.Instance.GetStatus(), imagestreams.DefaultConditionType)
+	cond := conditions.FindStatusCondition(rr.Instance.GetStatus(), string(imagestreams.DefaultConditionType))
 	g.Expect(cond).Should(BeNil(), "no condition should be set when ImageStream CRD is missing")
 }
 
@@ -202,13 +211,13 @@ func TestImageStreamsAllHealthy(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status": Equal(metav1.ConditionTrue),
 			}),
@@ -245,13 +254,13 @@ func TestImageStreamsAllFailed(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status":  Equal(metav1.ConditionFalse),
 				"Reason":  Equal(imagestreams.DefaultNotAvailableReason),
@@ -294,13 +303,13 @@ func TestImageStreamsMixedHealth(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status":  Equal(metav1.ConditionFalse),
 				"Message": And(ContainSubstring("1 ImageStream tag(s)"), ContainSubstring("jupyter-mixed:cuda")),
@@ -333,13 +342,13 @@ func TestImageStreamsFreshDeploy(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status": Equal(metav1.ConditionTrue),
 			}),
@@ -375,13 +384,13 @@ func TestImageStreamsImportSuccessTrue(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status": Equal(metav1.ConditionTrue),
 			}),
@@ -419,13 +428,13 @@ func TestImageStreamsMultipleImageStreams(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status":  Equal(metav1.ConditionFalse),
 				"Message": ContainSubstring("jupyter-cuda:cuda-12"),
@@ -460,13 +469,13 @@ func TestImageStreamsIgnoresDifferentLabels(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status": Equal(metav1.ConditionTrue),
 			}),
@@ -510,13 +519,13 @@ func TestImageStreamsInNamespace(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status":  Equal(metav1.ConditionFalse),
 				"Message": And(ContainSubstring("jupyter-target:bad"), Not(ContainSubstring("jupyter-other"))),
@@ -552,14 +561,14 @@ func TestImageStreamsMessageTruncation(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status":  Equal(metav1.ConditionFalse),
 				"Message": And(ContainSubstring("..."), Not(ContainSubstring(longMsg))),
@@ -597,14 +606,14 @@ func TestImageStreamsMaxFailedTagsCap(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	g.Expect(rr.Instance).Should(
 		WithTransform(
-			matchers.ExtractStatusCondition(imagestreams.DefaultConditionType),
+			matchers.ExtractStatusCondition(string(imagestreams.DefaultConditionType)),
 			gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 				"Status": Equal(metav1.ConditionFalse),
 				"Message": And(
@@ -632,7 +641,7 @@ func TestImageStreamsMissingNamespaceFn(t *testing.T) {
 		Client:   cl,
 		Instance: instance,
 	}
-	rr.Conditions = conditions.NewManager(rr.Instance, string(common.ConditionTypeReady))
+	rr.Conditions = newConditionsManager(rr.Instance)
 
 	err := action(ctx, &rr)
 	g.Expect(err).Should(HaveOccurred())
