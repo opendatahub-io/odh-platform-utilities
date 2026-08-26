@@ -7,38 +7,57 @@ import (
 )
 
 var (
+	// ErrFieldNotSlice is returned when a containers field is not a slice.
 	ErrFieldNotSlice = errors.New("field is not a slice")
-	ErrFieldNotMap   = errors.New("field is not a map")
+	// ErrFieldNotMap is returned when a container element is not a map.
+	ErrFieldNotMap = errors.New("field is not a map")
 
 	deploymentContainersPath = []string{"spec", "template", "spec", "containers"}
 	deploymentProbeFields    = []string{"livenessProbe", "readinessProbe", "startupProbe"}
 )
 
-// MergeDeployments preserves user-tuned fields from the live Deployment while
-// still allowing rendered manifests to fill in missing probes.
-func MergeDeployments(existing *unstructured.Unstructured, desired *unstructured.Unstructured) error {
-	if err := mergeContainerResources(existing, desired); err != nil {
+// MergeDeployments merges fields from the existing (live) Deployment into the
+// desired (rendered) Deployment before SSA apply, preserving user-tuned values
+// that SSA would otherwise overwrite. Two merge policies apply:
+//
+//   - resources and replicas: live value always wins. An absent resources map
+//     on live deletes desired resources.
+//
+//   - probes (liveness, readiness, startup): fill-if-absent. A probe present
+//     in desired is never overwritten. A probe absent from desired is copied
+//     from live if one exists there. Because Kubernetes has no empty-probe
+//     sentinel, a probe set on a live Deployment cannot be removed by omitting
+//     it from the rendered manifest.
+//
+// Fields merged from existing -> desired:
+//   - spec.replicas
+//   - spec.template.spec.containers[].resources  (matched by container name; live always wins)
+//   - spec.template.spec.containers[].livenessProbe  (only when not set in desired)
+//   - spec.template.spec.containers[].readinessProbe (only when not set in desired)
+//   - spec.template.spec.containers[].startupProbe   (only when not set in desired)
+func MergeDeployments(source *unstructured.Unstructured, target *unstructured.Unstructured) error {
+	if err := mergeContainerResources(source, target); err != nil {
 		return err
 	}
 
-	if err := mergeContainerProbes(existing, desired); err != nil {
+	if err := mergeContainerProbes(source, target); err != nil {
 		return err
 	}
 
-	if err := mergeReplicas(existing, desired); err != nil {
+	if err := mergeReplicas(source, target); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func mergeContainerResources(existing, desired *unstructured.Unstructured) error {
-	sourceContainers, err := extractContainers(existing.Object, deploymentContainersPath)
+func mergeContainerResources(source, target *unstructured.Unstructured) error {
+	sourceContainers, err := extractContainers(source.Object, deploymentContainersPath)
 	if err != nil {
 		return err
 	}
 
-	targetContainers, err := extractContainers(desired.Object, deploymentContainersPath)
+	targetContainers, err := extractContainers(target.Object, deploymentContainersPath)
 	if err != nil {
 		return err
 	}
@@ -118,13 +137,17 @@ func applyResourceMap(containers []any, resourcesByName map[string]any) {
 	}
 }
 
-func mergeContainerProbes(existing, desired *unstructured.Unstructured) error {
-	sourceContainers, err := extractContainers(existing.Object, deploymentContainersPath)
+// Probes use fill-if-absent semantics: a probe present in target is never
+// overwritten; a probe absent from target is copied from source if one exists.
+// This differs from resource merging, where source always wins and an empty
+// source map deletes target resources.
+func mergeContainerProbes(source, target *unstructured.Unstructured) error {
+	sourceContainers, err := extractContainers(source.Object, deploymentContainersPath)
 	if err != nil {
 		return err
 	}
 
-	targetContainers, err := extractContainers(desired.Object, deploymentContainersPath)
+	targetContainers, err := extractContainers(target.Object, deploymentContainersPath)
 	if err != nil {
 		return err
 	}
@@ -191,18 +214,18 @@ func applyProbeMap(containers []any, probesByName map[string]map[string]any) {
 	}
 }
 
-func mergeReplicas(existing, desired *unstructured.Unstructured) error {
+func mergeReplicas(source, target *unstructured.Unstructured) error {
 	replicasPath := []string{"spec", "replicas"}
 
-	sourceReplica, ok, err := unstructured.NestedFieldNoCopy(existing.Object, replicasPath...)
+	sourceReplica, ok, err := unstructured.NestedFieldNoCopy(source.Object, replicasPath...)
 	if err != nil {
 		return err
 	}
 
 	if !ok {
-		unstructured.RemoveNestedField(desired.Object, replicasPath...)
+		unstructured.RemoveNestedField(target.Object, replicasPath...)
 		return nil
 	}
 
-	return unstructured.SetNestedField(desired.Object, sourceReplica, replicasPath...)
+	return unstructured.SetNestedField(target.Object, sourceReplica, replicasPath...)
 }
