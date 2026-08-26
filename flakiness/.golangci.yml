@@ -6,7 +6,6 @@ linters:
     - gomodguard_v2
   disable:
     - cyclop
-    - depguard
     - err113
     - exhaustruct
     - funcorder
@@ -42,6 +41,17 @@ linters:
       default-signifies-exhaustive: true
     govet:
       enable-all: true
+    depguard:
+      rules:
+        no_root_utilities:
+          list-mode: lax
+          files:
+            - $all
+          deny:
+            - pkg: github.com/opendatahub-io/odh-platform-utilities/pkg/
+              desc: use flakiness-local packages instead of root pkg/*
+            - pkg: github.com/opendatahub-io/odh-platform-utilities/api/
+              desc: avoid root api/* imports in the flakiness module
     importas:
       no-unaliased: true
     revive:
