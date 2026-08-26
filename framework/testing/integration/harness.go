@@ -20,7 +20,6 @@ import (
 
 	"github.com/onsi/gomega"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster/gvk"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
@@ -220,9 +219,9 @@ func assertModuleReady(ctx context.Context, g gomega.Gomega, c client.Client, cf
 	var status api.Status
 	g.Expect(runtime.DefaultUnstructuredConverter.FromUnstructured(statusRaw, &status)).To(gomega.Succeed())
 
-	g.Expect(conditions.IsStatusConditionTrue(&status, string(common.ConditionTypeReady))).To(gomega.BeTrue(),
+	g.Expect(conditions.IsStatusConditionTrue(&status, string(api.ConditionTypeReady))).To(gomega.BeTrue(),
 		"module %s/%s: Ready condition is not True", cfg.moduleGVK.Kind, cfg.moduleName)
-	g.Expect(conditions.IsStatusConditionTrue(&status, string(common.ConditionTypeProvisioningSucceeded))).To(gomega.BeTrue(),
+	g.Expect(conditions.IsStatusConditionTrue(&status, string(api.ConditionTypeProvisioningSucceeded))).To(gomega.BeTrue(),
 		"module %s/%s: ProvisioningSucceeded condition is not True", cfg.moduleGVK.Kind, cfg.moduleName)
 }
 

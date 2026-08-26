@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/releases"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
@@ -22,7 +21,7 @@ type fakeInstance struct {
 	metav1.ObjectMeta `json:"metadata"`
 
 	status        api.Status
-	releaseStatus common.ComponentReleaseStatus
+	releaseStatus api.ComponentReleaseStatus
 }
 
 func (f *fakeInstance) GetStatus() *api.Status {
@@ -37,11 +36,11 @@ func (f *fakeInstance) SetConditions(c []api.Condition) {
 	f.status.Conditions = c
 }
 
-func (f *fakeInstance) GetReleaseStatus() *common.ComponentReleaseStatus {
+func (f *fakeInstance) GetReleaseStatus() *api.ComponentReleaseStatus {
 	return &f.releaseStatus
 }
 
-func (f *fakeInstance) SetReleaseStatus(status common.ComponentReleaseStatus) {
+func (f *fakeInstance) SetReleaseStatus(status api.ComponentReleaseStatus) {
 	f.releaseStatus = status
 }
 
@@ -85,7 +84,7 @@ func TestFetchReleasesStatusAction_CustomFS(t *testing.T) {
 		metadataFilePath string
 		expectedReleases int
 		expectedError    bool
-		providedStatus   *common.ComponentReleaseStatus
+		providedStatus   *api.ComponentReleaseStatus
 	}{
 		{
 			name: "valid YAML returns all releases",
@@ -124,8 +123,8 @@ func TestFetchReleasesStatusAction_CustomFS(t *testing.T) {
 			},
 			metadataFilePath: "cached_file.yaml",
 			expectedReleases: 1,
-			providedStatus: &common.ComponentReleaseStatus{
-				Releases: []common.ComponentRelease{
+			providedStatus: &api.ComponentReleaseStatus{
+				Releases: []api.ComponentRelease{
 					{Name: "Kubeflow Pipelines", Version: "0.0.0", RepoURL: "https://github.com/kubeflow/kfp-tekton"},
 				},
 			},

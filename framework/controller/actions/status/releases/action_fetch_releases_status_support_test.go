@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/releases"
 
 	. "github.com/onsi/gomega"
@@ -14,56 +14,56 @@ import (
 func TestNormalizeComponentReleases(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    []common.ComponentRelease
-		expected []common.ComponentRelease
+		input    []api.ComponentRelease
+		expected []api.ComponentRelease
 	}{
 		{
 			name:     "nil input returns empty",
 			input:    nil,
-			expected: []common.ComponentRelease{},
+			expected: []api.ComponentRelease{},
 		},
 		{
 			name:     "empty input returns empty",
-			input:    []common.ComponentRelease{},
-			expected: []common.ComponentRelease{},
+			input:    []api.ComponentRelease{},
+			expected: []api.ComponentRelease{},
 		},
 		{
 			name: "empty version is filtered out",
-			input: []common.ComponentRelease{
+			input: []api.ComponentRelease{
 				{Name: "A", Version: ""},
 				{Name: "B", Version: "1.0.0"},
 			},
-			expected: []common.ComponentRelease{
+			expected: []api.ComponentRelease{
 				{Name: "B", Version: "1.0.0"},
 			},
 		},
 		{
 			name: "whitespace-only version is filtered out",
-			input: []common.ComponentRelease{
+			input: []api.ComponentRelease{
 				{Name: "A", Version: "  "},
 				{Name: "B", Version: "1.0.0"},
 			},
-			expected: []common.ComponentRelease{
+			expected: []api.ComponentRelease{
 				{Name: "B", Version: "1.0.0"},
 			},
 		},
 		{
 			name: "version whitespace is trimmed",
-			input: []common.ComponentRelease{
+			input: []api.ComponentRelease{
 				{Name: "A", Version: "  2.0.0  "},
 			},
-			expected: []common.ComponentRelease{
+			expected: []api.ComponentRelease{
 				{Name: "A", Version: "2.0.0"},
 			},
 		},
 		{
 			name: "result is sorted by name",
-			input: []common.ComponentRelease{
+			input: []api.ComponentRelease{
 				{Name: "Zebra", Version: "1.0.0"},
 				{Name: "Alpha", Version: "2.0.0"},
 				{Name: "Mango", Version: "3.0.0"},
 			},
-			expected: []common.ComponentRelease{
+			expected: []api.ComponentRelease{
 				{Name: "Alpha", Version: "2.0.0"},
 				{Name: "Mango", Version: "3.0.0"},
 				{Name: "Zebra", Version: "1.0.0"},

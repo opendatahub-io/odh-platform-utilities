@@ -1,12 +1,10 @@
 package integration
 
-import "github.com/opendatahub-io/odh-platform-utilities/api/common"
-
 // Management state constants — mirrors common.Managed and common.Removed as plain strings
 // for use in map[string]any DSC specs.
 const (
-	Managed = string(common.Managed)
-	Removed = string(common.Removed)
+	Managed = "Managed"
+	Removed = "Removed"
 )
 
 // Component name constants matching DSC spec field names. Convenience only:

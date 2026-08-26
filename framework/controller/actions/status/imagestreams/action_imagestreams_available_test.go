@@ -18,13 +18,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
-	fwapi "github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/imagestreams"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/metadata/labels"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/utils/test/matchers"
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
 	. "github.com/onsi/gomega"
 )
@@ -33,27 +32,27 @@ type fakeInstance struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 
-	status        fwapi.Status
-	releaseStatus common.ComponentReleaseStatus
+	status        api.Status
+	releaseStatus api.ComponentReleaseStatus
 }
 
-func (f *fakeInstance) GetStatus() *fwapi.Status {
+func (f *fakeInstance) GetStatus() *api.Status {
 	return &f.status
 }
 
-func (f *fakeInstance) GetConditions() []fwapi.Condition {
+func (f *fakeInstance) GetConditions() []api.Condition {
 	return f.status.Conditions
 }
 
-func (f *fakeInstance) SetConditions(c []fwapi.Condition) {
+func (f *fakeInstance) SetConditions(c []api.Condition) {
 	f.status.Conditions = c
 }
 
-func (f *fakeInstance) GetReleaseStatus() *common.ComponentReleaseStatus {
+func (f *fakeInstance) GetReleaseStatus() *api.ComponentReleaseStatus {
 	return &f.releaseStatus
 }
 
-func (f *fakeInstance) SetReleaseStatus(status common.ComponentReleaseStatus) {
+func (f *fakeInstance) SetReleaseStatus(status api.ComponentReleaseStatus) {
 	f.releaseStatus = status
 }
 
@@ -62,8 +61,8 @@ func (f *fakeInstance) DeepCopyObject() runtime.Object {
 	return &o
 }
 
-func newConditionsManager(accessor fwapi.ConditionsAccessor) *conditions.Manager {
-	aggregator, err := conditions.NewAggregator(fwapi.ConditionTypeReady)
+func newConditionsManager(accessor api.ConditionsAccessor) *conditions.Manager {
+	aggregator, err := conditions.NewAggregator(api.ConditionTypeReady)
 	if err != nil {
 		panic(err)
 	}

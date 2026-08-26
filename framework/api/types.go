@@ -151,8 +151,53 @@ type ComponentReleaseStatus struct {
 	Releases []ComponentRelease `json:"releases,omitempty" yaml:"releases,omitempty"`
 }
 
+// ReleasePlatform is the well-known release entry name used for the platform
+// version handshake.
+const ReleasePlatform = "platform"
+
+// GetRelease returns the release entry with the given name, or nil if not
+// found.
+func (s *ComponentReleaseStatus) GetRelease(name string) *ComponentRelease {
+	for i := range s.Releases {
+		if s.Releases[i].Name == name {
+			return &s.Releases[i]
+		}
+	}
+
+	return nil
+}
+
+// SetRelease upserts a release entry by name.
+func (s *ComponentReleaseStatus) SetRelease(r ComponentRelease) {
+	for i := range s.Releases {
+		if s.Releases[i].Name == r.Name {
+			s.Releases[i] = r
+			return
+		}
+	}
+
+	s.Releases = append(s.Releases, r)
+}
+
+// GetPlatformRelease returns the platform version the module has reconciled
+// against, or empty string if the handshake has not been completed yet.
+func (s *ComponentReleaseStatus) GetPlatformRelease() string {
+	r := s.GetRelease(ReleasePlatform)
+	if r == nil {
+		return ""
+	}
+
+	return r.Version
+}
+
+// SetPlatformRelease records the platform version the module has successfully
+// reconciled against.
+func (s *ComponentReleaseStatus) SetPlatformRelease(version string) {
+	s.SetRelease(ComponentRelease{Name: ReleasePlatform, Version: version})
+}
+
 // WithReleases is implemented by resources that track per-component release metadata.
 type WithReleases interface {
-	GetReleaseStatus() *[]ComponentRelease
-	SetReleaseStatus(status []ComponentRelease)
+	GetReleaseStatus() *ComponentReleaseStatus
+	SetReleaseStatus(status ComponentReleaseStatus)
 }
