@@ -39,7 +39,18 @@ Without this, Get fails even on OpenShift.
 
 ### RBAC
 
-Grant the module service account:
+Grant the module service account `get` on `apiservers.config.openshift.io`.
+Add `list` and `watch` only when registering `SecurityProfileWatcher`.
+
+Baseline (Load / FromAPIServer):
+
+```text
+apiGroups: ["config.openshift.io"]
+resources: ["apiservers"]
+verbs: ["get"]
+```
+
+With the watcher:
 
 ```text
 apiGroups: ["config.openshift.io"]
@@ -47,14 +58,17 @@ resources: ["apiservers"]
 verbs: ["get", "list", "watch"]
 ```
 
-Kubebuilder marker:
+Load / FromAPIServer only:
+
+```go
+//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get
+```
+
+Also register `SecurityProfileWatcher`:
 
 ```go
 //+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 ```
-
-`watch` is required for `SecurityProfileWatcher`. `get` is enough for
-`Load` / `FromAPIServer` if you skip the watcher (vanilla Kubernetes).
 
 ## 1. Process TLS (webhook and metrics)
 

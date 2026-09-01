@@ -1531,8 +1531,8 @@ Use root `pkg/tls`. Do not copy OpenShift `TLSProfiles` tables into the module.
 
 **Expected wiring:**
 
-1. `configv1.Install(scheme)` and RBAC get/list/watch on
-   `apiservers.config.openshift.io`.
+1. `configv1.Install(scheme)` and RBAC `get` on
+   `apiservers.config.openshift.io` (`list`/`watch` only if the watcher is registered).
 2. In `main.go`: `Load` → `ConfigFromProfile` → metrics/webhook `TLSOpts`.
    Register `SecurityProfileWatcher` only when `Watchable` is true; cancel the
    manager context on change so the pod restarts.

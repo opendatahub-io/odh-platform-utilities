@@ -38,8 +38,9 @@ follow the cluster profile.
 ## Caller Requirements
 
 - `configv1.Install(scheme)` (or `AddToScheme`) so typed `APIServer` Get/watch works
-- RBAC: get/list/watch `apiservers.config.openshift.io`
+- RBAC: `get` on `apiservers.config.openshift.io`; add `list`/`watch` only for `SecurityProfileWatcher`
 - Register `SecurityProfileWatcher` only when `Load` reports `Watchable`
+- `github.com/openshift/library-go` pulls `k8s.io/apiserver` transitively; do not import it from this package
 
 Module-facing walkthrough (scheme, RBAC, `main.go`, proxy flags):
 [docs/module-tls.md](../../docs/module-tls.md).

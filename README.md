@@ -247,18 +247,25 @@ strategy.
 Module controllers that serve webhooks/metrics or stamp proxy TLS flags can
 resolve the cluster profile from `apiservers.config.openshift.io/cluster`.
 This is the one root-module package that imports `github.com/openshift/api`.
-Register `configv1.Install(scheme)` and grant get/list/watch on that resource.
+Register `configv1.Install(scheme)` and grant `get` on that resource.
+Grant `list` and `watch` only when registering `SecurityProfileWatcher`.
 
 ```go
 import pkgtls "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
 
 result, err := pkgtls.Load(ctx, client)
 if err != nil {
-    // unexpected error: refuse to start
+    return fmt.Errorf("load TLS profile: %w", err)
 }
-tlsOpts, _ := pkgtls.ConfigFromProfile(result.Spec)
+tlsOpts, unsupported := pkgtls.ConfigFromProfile(result.Spec)
+if len(unsupported) > 0 {
+    setupLog.Info("dropping cipher names unsupported by Go", "ciphers", unsupported)
+}
 
 minVersion, ciphers, err := pkgtls.FromAPIServer(ctx, client, pkgtls.FormatShort)
+if err != nil {
+    return fmt.Errorf("resolve TLS profile: %w", err)
+}
 ```
 
 On vanilla Kubernetes, `Load` and `FromAPIServer` fall back to the Intermediate

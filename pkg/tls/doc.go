@@ -21,16 +21,27 @@
 //
 //	result, err := tls.Load(ctx, bootstrapClient)
 //	if err != nil {
-//	    // unexpected error: refuse to start
+//	    return fmt.Errorf("load TLS profile: %w", err)
 //	}
-//	tlsOpts, _ := tls.ConfigFromProfile(result.Spec)
+//	tlsOpts, unsupported := tls.ConfigFromProfile(result.Spec)
+//	if len(unsupported) > 0 {
+//	    setupLog.Info("dropping cipher names unsupported by Go", "ciphers", unsupported)
+//	}
+//	mgrCtx := ctx
+//	var cancel context.CancelFunc
+//	if result.Watchable {
+//	    mgrCtx, cancel = context.WithCancel(ctx)
+//	    defer cancel()
+//	}
 //	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 //	    Scheme:  scheme,
 //	    Metrics: metricsserver.Options{TLSOpts: []func(*cryptotls.Config){tlsOpts}},
 //	    WebhookServer: webhook.NewServer(webhook.Options{TLSOpts: []func(*cryptotls.Config){tlsOpts}}),
 //	})
+//	if err != nil {
+//	    return fmt.Errorf("create manager: %w", err)
+//	}
 //	if result.Watchable {
-//	    mgrCtx, cancel := context.WithCancel(ctx)
 //	    watcher := &tls.SecurityProfileWatcher{
 //	        Client:                mgr.GetClient(),
 //	        InitialTLSProfileSpec: result.Spec,
@@ -38,11 +49,16 @@
 //	            cancel()
 //	        },
 //	    }
-//	    _ = watcher.SetupWithManager(mgr)
-//	    _ = mgr.Start(mgrCtx)
+//	    if err := watcher.SetupWithManager(mgr); err != nil {
+//	        return fmt.Errorf("register TLS profile watcher: %w", err)
+//	    }
+//	}
+//	if err := mgr.Start(mgrCtx); err != nil {
+//	    return fmt.Errorf("start manager: %w", err)
 //	}
 //
-// Required RBAC: get, list, and watch on apiservers.config.openshift.io.
+// Required RBAC: get on apiservers.config.openshift.io. list and watch are
+// required only when registering SecurityProfileWatcher.
 //
 // On vanilla Kubernetes, Load falls back to the Intermediate profile and
 // Watchable is false. FromAPIServer does the same for proxy flag strings.

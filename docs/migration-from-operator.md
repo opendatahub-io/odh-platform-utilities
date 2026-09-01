@@ -219,8 +219,9 @@ both behind `github.com/opendatahub-io/odh-platform-utilities/pkg/tls`.
 | CRC `SecurityProfileWatcher` | `pkg/tls.SecurityProfileWatcher` | TLS adherence policy is not ported |
 | `cmd/main.go` `fetchTLSProfile` | `pkg/tls.Load` | Intermediate fallback; `Watchable` gates the watcher |
 
-Callers must `configv1.Install(scheme)` and grant get/list/watch on
-`apiservers.config.openshift.io`. This package is the scoped root-module
+Callers must `configv1.Install(scheme)` and grant `get` on
+`apiservers.config.openshift.io`. Grant `list` and `watch` only when
+registering `SecurityProfileWatcher`. This package is the scoped root-module
 exception that imports `github.com/openshift/api`.
 
 How a standalone module should wire this in `main.go` and reconcile:
@@ -236,5 +237,5 @@ How a standalone module should wire this in `main.go` and reconcile:
 6. [ ] Replace `status.PhaseReady` etc. with `common.PhaseReady`
 7. [ ] Run `go mod tidy` to clean up removed operator dependencies
 8. [ ] Verify no imports from `github.com/opendatahub-io/opendatahub-operator/internal/`
-9. [ ] Verify no imports from `github.com/openshift/api` except `pkg/tls` (and other packages that already needed OpenShift types)
+9. [ ] Verify no imports from `github.com/openshift/api` or `github.com/openshift/library-go` outside `pkg/tls`
 10. [ ] Run tests to confirm behavior is unchanged

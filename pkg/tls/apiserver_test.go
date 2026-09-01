@@ -250,22 +250,29 @@ func TestLoad(t *testing.T) { //nolint:funlen // Fallback-policy cases for manag
 	t.Run("transient error is watchable", func(t *testing.T) {
 		t.Parallel()
 
-		transients := []error{
-			k8serr.NewServiceUnavailable("unavailable"),
-			k8serr.NewTimeoutError("timed out", 0),
-			k8serr.NewServerTimeout(schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}, "get", 0),
-			k8serr.NewTooManyRequests("rate limited", 1),
+		tests := []struct {
+			name   string
+			getErr error
+		}{
+			{name: "service unavailable", getErr: k8serr.NewServiceUnavailable("unavailable")},
+			{name: "timeout", getErr: k8serr.NewTimeoutError("timed out", 0)},
+			{name: "server timeout", getErr: k8serr.NewServerTimeout(schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}, "get", 0)},
+			{name: "too many requests", getErr: k8serr.NewTooManyRequests("rate limited", 1)},
 		}
-		for _, getErr := range transients {
-			cli := &erroringClient{
-				Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
-				getErr: getErr,
-			}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 
-			result, err := pkgtls.Load(ctx, cli)
-			require.NoError(t, err)
-			assert.True(t, result.Watchable)
-			assert.Equal(t, intermediate.MinTLSVersion, result.Spec.MinTLSVersion)
+				cli := &erroringClient{
+					Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+					getErr: tt.getErr,
+				}
+
+				result, err := pkgtls.Load(ctx, cli)
+				require.NoError(t, err)
+				assert.True(t, result.Watchable)
+				assert.Equal(t, intermediate.MinTLSVersion, result.Spec.MinTLSVersion)
+			})
 		}
 	})
 
