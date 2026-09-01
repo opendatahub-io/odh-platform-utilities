@@ -118,7 +118,12 @@ func setupTLS(ctx context.Context, restConfig *rest.Config, scheme *runtime.Sche
         // Log and continue. These names are not implemented by Go crypto/tls.
     }
 
-    return []func(*tls.Config){tlsOpts}, result, nil
+    return []func(*tls.Config){
+        tlsOpts,
+        func(c *tls.Config) {
+            c.NextProtos = []string{"h2", "http/1.1"}
+        },
+    }, result, nil
 }
 ```
 
@@ -181,8 +186,8 @@ Do **not** call `SetupWithManager` when `Watchable` is false. The APIServer GVK
 is absent on vanilla Kubernetes and the watch will fail.
 
 `ConfigFromProfile` applies the spec as given (including Old / TLS 1.0 if that
-is the cluster profile). It does not set `NextProtos`; add `h2` / `http/1.1`
-in your own `TLSOpts` if the metrics or webhook server needs them.
+is the cluster profile). It does not set `NextProtos`; the `setupTLS` snippet
+above adds `h2` / `http/1.1` so HTTP/2 works on the metrics and webhook servers.
 
 ## 2. Operand / proxy TLS flags
 

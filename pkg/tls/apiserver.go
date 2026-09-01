@@ -2,6 +2,7 @@ package tls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -83,7 +84,8 @@ func Load(ctx context.Context, cli client.Reader) (LoadResult, error) {
 }
 
 func isTransientAPIError(err error) bool {
-	return k8serr.IsServiceUnavailable(err) ||
+	return errors.Is(err, context.DeadlineExceeded) ||
+		k8serr.IsServiceUnavailable(err) ||
 		k8serr.IsTimeout(err) ||
 		k8serr.IsServerTimeout(err) ||
 		k8serr.IsTooManyRequests(err)

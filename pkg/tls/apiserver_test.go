@@ -251,13 +251,21 @@ func TestLoad(t *testing.T) { //nolint:funlen // Fallback-policy cases for manag
 		t.Parallel()
 
 		tests := []struct {
-			name   string
 			getErr error
+			name   string
 		}{
 			{name: "service unavailable", getErr: k8serr.NewServiceUnavailable("unavailable")},
 			{name: "timeout", getErr: k8serr.NewTimeoutError("timed out", 0)},
-			{name: "server timeout", getErr: k8serr.NewServerTimeout(schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}, "get", 0)},
+			{
+				name: "server timeout",
+				getErr: k8serr.NewServerTimeout(
+					schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"},
+					"get",
+					0,
+				),
+			},
 			{name: "too many requests", getErr: k8serr.NewTooManyRequests("rate limited", 1)},
+			{name: "context deadline exceeded", getErr: context.DeadlineExceeded},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

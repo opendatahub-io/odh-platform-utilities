@@ -26,7 +26,7 @@ Do not import `opendatahub-operator` internals or
 |---|---|---|
 | Success | cluster profile strings | cluster spec, `Watchable=true` |
 | `NotFound` / `NoMatchError` | Intermediate, no error | Intermediate, `Watchable=false` |
-| Transient (unavailable, timeout, 429) | error | Intermediate, `Watchable=true` |
+| Transient (unavailable, timeout, 429, context deadline) | error | Intermediate, `Watchable=true` |
 | Other errors (forbidden, etc.) | error | error (caller should refuse to start) |
 
 Custom type with a nil spec falls back to Intermediate (do not fail closed).
