@@ -14,6 +14,7 @@ controller that imports this shared library.
 | `github.com/opendatahub-io/opendatahub-operator/pkg/cluster` | `github.com/opendatahub-io/odh-platform-utilities/pkg/cluster` |
 | `github.com/opendatahub-io/opendatahub-operator/pkg/resources` | `github.com/opendatahub-io/odh-platform-utilities/pkg/resources` |
 | `github.com/opendatahub-io/opendatahub-operator/pkg/webhook` | `github.com/opendatahub-io/odh-platform-utilities/pkg/webhook` |
+| `github.com/opendatahub-io/opendatahub-operator/pkg/tls` | `github.com/opendatahub-io/odh-platform-utilities/pkg/tls` |
 
 ## Type Mapping
 
@@ -199,6 +200,33 @@ and deny logic. The new signature is `DenyCountGtZero(count, gvk)` — it
 only handles the deny decision. Counting is now done separately via
 `CountObjects`.
 
+### TLS (`pkg/tls`)
+
+The operator splits TLS across `pkg/tls` (proxy flag strings) and
+`github.com/openshift/controller-runtime-common/pkg/tls` (process
+`crypto/tls.Config` and `SecurityProfileWatcher`). The shared library unifies
+both behind `github.com/opendatahub-io/odh-platform-utilities/pkg/tls`.
+
+| Operator / CRC symbol | Shared library | Notes |
+|----------------------|----------------|-------|
+| `pkg/tls.ProfileSpecFromSecurityProfile` | `pkg/tls.ProfileSpecFromSecurityProfile` | Custom with nil spec still falls back to Intermediate |
+| `pkg/tls.MinVersionFromSpec` | `pkg/tls.MinVersionFromSpec` | Short (`TLS1.2`) and Go (`VersionTLS12`) formats |
+| `pkg/tls.CipherSuitesFromSpec` | `pkg/tls.CipherSuitesFromSpec` | Unchanged |
+| `pkg/tls.FromProfile` | `pkg/tls.FromProfile` | Unchanged |
+| `pkg/tls.FromAPIServer` | `pkg/tls.FromAPIServer` | Unchanged |
+| CRC `FetchAPIServerTLSProfile` | `pkg/tls.FetchAPIServerTLSProfile` | Errors on Get failure; use `Load` for startup fallback |
+| CRC `NewTLSConfigFromProfile` | `pkg/tls.ConfigFromProfile` | Also maps `Groups` onto `CurvePreferences` |
+| CRC `SecurityProfileWatcher` | `pkg/tls.SecurityProfileWatcher` | TLS adherence policy is not ported |
+| `cmd/main.go` `fetchTLSProfile` | `pkg/tls.Load` | Intermediate fallback; `Watchable` gates the watcher |
+
+Callers must `configv1.Install(scheme)` and grant `get` on
+`apiservers.config.openshift.io`. Grant `list` and `watch` only when
+registering `SecurityProfileWatcher`. This package is the scoped root-module
+exception that imports `github.com/openshift/api`.
+
+How a standalone module should wire this in `main.go` and reconcile:
+[TLS Configuration for Module Controllers](./module-tls.md).
+
 ## Migration Checklist
 
 1. [ ] Add `github.com/opendatahub-io/odh-platform-utilities` to your `go.mod`
@@ -209,5 +237,5 @@ only handles the deny decision. Counting is now done separately via
 6. [ ] Replace `status.PhaseReady` etc. with `common.PhaseReady`
 7. [ ] Run `go mod tidy` to clean up removed operator dependencies
 8. [ ] Verify no imports from `github.com/opendatahub-io/opendatahub-operator/internal/`
-9. [ ] Verify no imports from `github.com/openshift/api`
+9. [ ] Verify no imports from `github.com/openshift/api` or `github.com/openshift/library-go` outside `pkg/tls`
 10. [ ] Run tests to confirm behavior is unchanged

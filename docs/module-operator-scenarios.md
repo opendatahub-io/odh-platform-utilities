@@ -29,6 +29,7 @@ Each scenario is self-contained. Read only the sections relevant to your module.
 8. [Dependency Management Between Modules](#8-dependency-management-between-modules)
 9. [Upgrade and Migration](#9-upgrade-and-migration)
 10. [Testing Patterns](#10-testing-patterns)
+11. [TLS Configuration](#11-tls-configuration)
 
 ---
 
@@ -1523,6 +1524,37 @@ assert.Equal(t, "sha256:abc123...", result)
 
 ---
 
+## 11. TLS Configuration
+
+**Context:** The module runs as its own Deployment. It cannot inherit the
+opendatahub-operator's webhook/metrics TLS config, and operands such as
+kube-rbac-proxy need min-version and cipher flags of their own.
+
+Use root `pkg/tls`. Do not copy OpenShift `TLSProfiles` tables into the module.
+
+**Expected wiring:**
+
+1. `configv1.Install(scheme)` and RBAC `get` on
+   `apiservers.config.openshift.io` (`list`/`watch` only if the watcher is registered).
+2. In `main.go`: `Load` → `ConfigFromProfile` → metrics/webhook `TLSOpts`.
+   Register `SecurityProfileWatcher` only when `Watchable` is true; cancel the
+   manager context on change so the pod restarts.
+3. When rendering proxy Deployments: `FromAPIServer` with `FormatShort`
+   (kube-auth-proxy) or `FormatGo` (kube-rbac-proxy).
+4. If the module CR already carries a `TLSSecurityProfile`, use `FromProfile`
+   / `ConfigFromProfile` instead of fetching APIServer.
+
+Full walkthrough, fallback policy, and copy-paste snippets:
+[TLS Configuration for Module Controllers](./module-tls.md).
+
+### Trade-offs
+
+Fetching APIServer from each module is the transitional path until the
+orchestrator projects cluster TLS policy into module CR fields
+(RHAISTRAT-1716). Vanilla Kubernetes gets Intermediate defaults and no watcher.
+
+---
+
 ## Appendix: Quick Reference
 
 ### Import Paths
@@ -1544,6 +1576,7 @@ import (
     "github.com/opendatahub-io/odh-platform-utilities/pkg/render/template"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/resources"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/status"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/webhook"
 )
 
@@ -1582,6 +1615,8 @@ import (
 
 - [PlatformObject Contract](./platform-object-contract.md) — full contract
   specification with implementation examples
+- [TLS Configuration for Module Controllers](./module-tls.md) — webhook/metrics
+  TLSOpts, profile watcher, and proxy flag wiring
 - [Migration from Operator](./migration-from-operator.md) — import path
   mapping from the ODH Operator monorepo
 - [Versioning](./VERSIONING.md) — semantic versioning policy
