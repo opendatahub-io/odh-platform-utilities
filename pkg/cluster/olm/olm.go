@@ -1,5 +1,5 @@
 // Package olm provides stateless detection functions for OLM (Operator
-// Lifecycle Manager) resources: operator existence, subscription queries.
+// Lifecycle Manager) resources: operator existence and installation queries.
 //
 // All functions use unstructured Kubernetes clients so that importing this
 // package does not pull in github.com/operator-framework/api. When OLM is
@@ -15,6 +15,7 @@ import (
 	"errors"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +36,9 @@ var (
 	}
 	subscriptionGVK = schema.GroupVersionKind{
 		Group: operatorFrameworkGroup, Version: "v1alpha1", Kind: "Subscription",
+	}
+	clusterExtensionGVK = schema.GroupVersionKind{
+		Group: "olm.operatorframework.io", Version: "v1", Kind: "ClusterExtension",
 	}
 	catalogSourceGVK = schema.GroupVersionKind{
 		Group: operatorFrameworkGroup, Version: "v1alpha1", Kind: "CatalogSource",
@@ -80,14 +84,44 @@ func OperatorExists(
 	return nil, ErrOperatorNotInstalled
 }
 
-// SubscriptionExists checks whether an OLM Subscription with the given
-// name exists anywhere on the cluster.
+// SubscriptionExists checks whether an operator installation with the given
+// name exists anywhere on the cluster. It supports both OLMv0 Subscriptions
+// and OLMv1 ClusterExtensions.
 //
-// Requires OLM. When OLM is absent, returns an error satisfying
-// [meta.IsNoMatchError].
+// Requires OLM. An API-not-found error from either OLM version is ignored when
+// the other version's API is available. When neither API is available, the
+// returned error satisfies [meta.IsNoMatchError].
 func SubscriptionExists(ctx context.Context, cli client.Reader, name string) (bool, error) {
+	subscriptionExists, subscriptionErr := resourceExists(ctx, cli, subscriptionGVK, name)
+	if subscriptionExists {
+		return true, nil
+	}
+
+	clusterExtensionExists, clusterExtensionErr := resourceExists(ctx, cli, clusterExtensionGVK, name)
+	if clusterExtensionExists {
+		return true, nil
+	}
+
+	if subscriptionErr != nil && !meta.IsNoMatchError(subscriptionErr) {
+		return false, subscriptionErr
+	}
+
+	if clusterExtensionErr != nil && !meta.IsNoMatchError(clusterExtensionErr) {
+		return false, clusterExtensionErr
+	}
+
+	if subscriptionErr == nil || clusterExtensionErr == nil {
+		return false, nil
+	}
+
+	return false, errors.Join(subscriptionErr, clusterExtensionErr)
+}
+
+func resourceExists(
+	ctx context.Context, cli client.Reader, gvk schema.GroupVersionKind, name string,
+) (bool, error) {
 	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(subscriptionGVK)
+	list.SetGroupVersionKind(gvk)
 
 	err := cli.List(ctx, list)
 	if err != nil {
