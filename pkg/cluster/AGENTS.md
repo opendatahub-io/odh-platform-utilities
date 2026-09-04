@@ -48,7 +48,7 @@ detection API is a transitional necessity and fallback mechanism.
 |---|---|---|
 | `CustomResourceDefinitionExists` | `cluster` | Any K8s |
 | `OperatorExists` | `cluster/olm` | OLM |
-| `SubscriptionExists` | `cluster/olm` | OLM |
+| `SubscriptionExists` | `cluster/olm` | OLMv0 or OLMv1 |
 | `GetSubscription` | `cluster/olm` | OLM |
 | `CatalogSourceExists` | `cluster/olm` | OLM |
 

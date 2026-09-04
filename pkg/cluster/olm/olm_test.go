@@ -5,8 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -19,8 +21,9 @@ var errAPIFailure = errors.New("api failure")
 type erroringOLMClient struct {
 	client.Reader
 
-	listErr error
-	getErr  error
+	listErr  error
+	listErrs map[schema.GroupVersionKind]error
+	getErr   error
 }
 
 func (c *erroringOLMClient) Get(
@@ -39,8 +42,123 @@ func (c *erroringOLMClient) List(
 	if c.listErr != nil {
 		return c.listErr
 	}
+	if err := c.listErrs[list.GetObjectKind().GroupVersionKind()]; err != nil {
+		return err
+	}
 
 	return c.Reader.List(ctx, list, opts...)
+}
+
+func TestSubscriptionExists_APIErrors(t *testing.T) { //nolint:funlen // Error combinations are table-driven.
+	t.Parallel()
+
+	subscriptionGVK := schema.GroupVersionKind{
+		Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription",
+	}
+	clusterExtensionGVK := schema.GroupVersionKind{
+		Group: "olm.operatorframework.io", Version: "v1", Kind: "ClusterExtension",
+	}
+	subscriptionNoMatch := &meta.NoKindMatchError{
+		GroupKind: subscriptionGVK.GroupKind(), SearchedVersions: []string{subscriptionGVK.Version},
+	}
+	clusterExtensionNoMatch := &meta.NoKindMatchError{
+		GroupKind:        clusterExtensionGVK.GroupKind(),
+		SearchedVersions: []string{clusterExtensionGVK.Version},
+	}
+	errSubscriptionAPI := errors.New("subscription API failure")
+	errClusterExtensionAPI := errors.New("cluster extension API failure")
+
+	tests := []struct {
+		name        string
+		objects     []client.Object
+		listErrs    map[schema.GroupVersionKind]error
+		want        bool
+		wantErr     error
+		wantNoMatch bool
+	}{
+		{
+			name:    "OLMv0 unavailable and OLMv1 dependency found",
+			objects: []client.Object{newClusterExtension("my-operator")},
+			listErrs: map[schema.GroupVersionKind]error{
+				subscriptionGVK: subscriptionNoMatch,
+			},
+			want: true,
+		},
+		{
+			name: "OLMv0 unavailable and dependency absent from OLMv1",
+			listErrs: map[schema.GroupVersionKind]error{
+				subscriptionGVK: subscriptionNoMatch,
+			},
+		},
+		{
+			name: "OLMv1 unavailable and dependency absent from OLMv0",
+			listErrs: map[schema.GroupVersionKind]error{
+				clusterExtensionGVK: clusterExtensionNoMatch,
+			},
+		},
+		{
+			name: "both OLM APIs unavailable",
+			listErrs: map[schema.GroupVersionKind]error{
+				subscriptionGVK:     subscriptionNoMatch,
+				clusterExtensionGVK: clusterExtensionNoMatch,
+			},
+			wantNoMatch: true,
+		},
+		{
+			name: "OLMv0 API failure",
+			listErrs: map[schema.GroupVersionKind]error{
+				subscriptionGVK: errSubscriptionAPI,
+			},
+			wantErr: errSubscriptionAPI,
+		},
+		{
+			name: "OLMv1 API failure",
+			listErrs: map[schema.GroupVersionKind]error{
+				clusterExtensionGVK: errClusterExtensionAPI,
+			},
+			wantErr: errClusterExtensionAPI,
+		},
+		{
+			name:    "OLMv1 match wins despite OLMv0 API failure",
+			objects: []client.Object{newClusterExtension("my-operator")},
+			listErrs: map[schema.GroupVersionKind]error{
+				subscriptionGVK: errSubscriptionAPI,
+			},
+			want: true,
+		},
+		{
+			name: "OLMv0 error takes precedence when both APIs fail",
+			listErrs: map[schema.GroupVersionKind]error{
+				subscriptionGVK:     errSubscriptionAPI,
+				clusterExtensionGVK: errClusterExtensionAPI,
+			},
+			wantErr: errSubscriptionAPI,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			baseCli := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(tc.objects...).Build()
+			cli := &erroringOLMClient{
+				Reader:   baseCli,
+				listErrs: tc.listErrs,
+			}
+
+			exists, err := olm.SubscriptionExists(t.Context(), cli, "my-operator")
+			if tc.wantNoMatch {
+				if !meta.IsNoMatchError(err) {
+					t.Fatalf("expected no-match error, got %v", err)
+				}
+			} else if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if exists != tc.want {
+				t.Errorf("SubscriptionExists() = %v, want %v", exists, tc.want)
+			}
+		})
+	}
 }
 
 func TestOperatorExists(t *testing.T) { //nolint:funlen // Table-driven test with many cases.
@@ -141,10 +259,27 @@ func TestSubscriptionExists(t *testing.T) {
 		want    bool
 	}{
 		{
-			name:    "subscription found",
+			name:    "OLMv0 subscription found",
 			subName: "my-operator",
 			objects: []client.Object{
 				newSubscription("my-operator", "operators"),
+			},
+			want: true,
+		},
+		{
+			name:    "OLMv1 cluster extension found",
+			subName: "my-operator",
+			objects: []client.Object{
+				newClusterExtension("my-operator"),
+			},
+			want: true,
+		},
+		{
+			name:    "matching cluster extension preferred over different subscription",
+			subName: "my-operator",
+			objects: []client.Object{
+				newSubscription("other-operator", "operators"),
+				newClusterExtension("my-operator"),
 			},
 			want: true,
 		},
@@ -159,6 +294,15 @@ func TestSubscriptionExists(t *testing.T) {
 			subName: "my-operator",
 			objects: []client.Object{
 				newSubscription("other-operator", "operators"),
+			},
+			want: false,
+		},
+		{
+			name:    "different names in both APIs",
+			subName: "my-operator",
+			objects: []client.Object{
+				newSubscription("other-subscription", "operators"),
+				newClusterExtension("other-extension"),
 			},
 			want: false,
 		},
@@ -302,6 +446,16 @@ func newSubscription(name, namespace string) *unstructured.Unstructured {
 				"name":      name,
 				"namespace": namespace,
 			},
+		},
+	}
+}
+
+func newClusterExtension(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "olm.operatorframework.io/v1",
+			"kind":       "ClusterExtension",
+			"metadata":   map[string]any{"name": name},
 		},
 	}
 }
