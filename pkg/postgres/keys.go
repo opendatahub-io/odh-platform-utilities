@@ -26,20 +26,13 @@ package postgres
 // Secret to be projected with Kubernetes envFrom, which silently drops keys
 // containing a period.
 const (
-	// SecretKeyHost is the Secret key for the database host.
-	SecretKeyHost = "host"
-	// SecretKeyPort is the Secret key for the database port.
-	SecretKeyPort = "port"
-	// SecretKeyUser is the Secret key for the database user.
-	SecretKeyUser = "user"
-	// SecretKeyPassword is the Secret key for the database password.
+	SecretKeyHost     = "host"
+	SecretKeyPort     = "port"
+	SecretKeyUser     = "user"
 	SecretKeyPassword = "password"
-	// SecretKeyDatabase is the Secret key for the database name.
 	SecretKeyDatabase = "dbname"
-	// SecretKeySchema is the Secret key for the database schema.
-	SecretKeySchema = "schema"
-	// SecretKeySSLMode is the Secret key for the PostgreSQL SSL mode.
-	SecretKeySSLMode = "sslmode"
+	SecretKeySchema   = "schema"
+	SecretKeySSLMode  = "sslmode"
 )
 
 // SecretKeyCA is the Secret key for the CA certificate. It is the deliberate
