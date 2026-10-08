@@ -10,11 +10,13 @@ import (
 	odhTypes "github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/resources"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/rules"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -205,12 +207,46 @@ func (a *Action) computeDeletableTypes(ctx context.Context, rr *odhTypes.Reconci
 		return nil, fmt.Errorf("unable to compute namespace: %w", err)
 	}
 
-	items, err := rules.ListAuthorizedResources(ctx, rr.Client, res, ns, []string{rules.VerbDelete})
+	permissionRules, err := rules.RetrieveSelfSubjectRules(ctx, rr.Client, ns)
 	if err != nil {
-		return nil, fmt.Errorf("failure listing authorized deletable resources: %w", err)
+		return nil, fmt.Errorf("failure retrieving resource rules: %w", err)
 	}
 
-	return items, nil
+	return selectDeletableTypes(res, permissionRules)
+}
+
+// selectDeletableTypes builds the GC type set from one SSRR result: resources
+// authorized for delete, cross-checked with list, then one API view chosen per
+// OpenShift RBAC alias (Kubernetes when list+delete work; otherwise OpenShift
+// when that path is list+delete).
+func selectDeletableTypes(
+	apis []*metav1.APIResourceList,
+	permissionRules []authorizationv1.ResourceRule,
+) ([]resources.Resource, error) {
+	deletable, err := authorizedResourcesForVerbs(apis, permissionRules, []string{rules.VerbDelete})
+	if err != nil {
+		return nil, fmt.Errorf("failure computing authorized deletable resources: %w", err)
+	}
+
+	listable, err := authorizedResourcesForVerbs(apis, permissionRules, []string{rules.VerbList})
+	if err != nil {
+		return nil, fmt.Errorf("failure computing authorized listable resources: %w", err)
+	}
+
+	return preferKubernetesRBACResources(deletable, listable), nil
+}
+
+func authorizedResourcesForVerbs(
+	apis []*metav1.APIResourceList,
+	permissionRules []authorizationv1.ResourceRule,
+	verbs []string,
+) ([]resources.Resource, error) {
+	apiResourceLists := discovery.FilteredBy(
+		discovery.SupportsAllVerbs{Verbs: verbs},
+		apis,
+	)
+
+	return rules.ComputeAuthorizedResources(apiResourceLists, permissionRules, verbs)
 }
 
 func (a *Action) listResources(

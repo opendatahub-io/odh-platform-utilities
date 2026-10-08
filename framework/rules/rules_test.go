@@ -193,6 +193,35 @@ func TestHasPermissions(t *testing.T) {
 			requiredVerbs: nil,
 			want:          false,
 		},
+		{
+			name: "resourceNames scoped rule is ignored",
+			rules: []authorizationv1.ResourceRule{{
+				Verbs:         []string{"list", "delete"},
+				APIGroups:     []string{""},
+				Resources:     []string{"pods"},
+				ResourceNames: []string{"only-this-one"},
+			}},
+			requiredVerbs: []string{"list"},
+			want:          false,
+		},
+		{
+			name: "collection-wide rule wins alongside resourceNames rule",
+			rules: []authorizationv1.ResourceRule{
+				{
+					Verbs:         []string{"list"},
+					APIGroups:     []string{""},
+					Resources:     []string{"pods"},
+					ResourceNames: []string{"only-this-one"},
+				},
+				{
+					Verbs:     []string{"list", "delete"},
+					APIGroups: []string{""},
+					Resources: []string{"pods"},
+				},
+			},
+			requiredVerbs: []string{"list", "delete"},
+			want:          true,
+		},
 	}
 
 	for _, tc := range cases {

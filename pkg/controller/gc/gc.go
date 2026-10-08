@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strings"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -198,12 +199,46 @@ func (c *Collector) computeDeletableTypes(
 		return nil, fmt.Errorf("unable to compute namespace: %w", err)
 	}
 
-	items, err := ListAuthorizedResources(ctx, params.Client, res, ns, []string{VerbDelete})
+	permissionRules, err := RetrieveSelfSubjectRules(ctx, params.Client, ns)
 	if err != nil {
-		return nil, fmt.Errorf("failure listing authorized deletable resources: %w", err)
+		return nil, fmt.Errorf("failure retrieving resource rules: %w", err)
 	}
 
-	return items, nil
+	return selectDeletableTypes(res, permissionRules)
+}
+
+// selectDeletableTypes builds the GC type set from one SSRR result: resources
+// authorized for delete, cross-checked with list, then one API view chosen per
+// OpenShift RBAC alias (Kubernetes when list+delete work; otherwise OpenShift
+// when that path is list+delete).
+func selectDeletableTypes(
+	apis []*metav1.APIResourceList,
+	permissionRules []authorizationv1.ResourceRule,
+) ([]resources.Resource, error) {
+	deletable, err := authorizedResourcesForVerbs(apis, permissionRules, []string{VerbDelete})
+	if err != nil {
+		return nil, fmt.Errorf("failure computing authorized deletable resources: %w", err)
+	}
+
+	listable, err := authorizedResourcesForVerbs(apis, permissionRules, []string{VerbList})
+	if err != nil {
+		return nil, fmt.Errorf("failure computing authorized listable resources: %w", err)
+	}
+
+	return preferKubernetesRBACResources(deletable, listable), nil
+}
+
+func authorizedResourcesForVerbs(
+	apis []*metav1.APIResourceList,
+	permissionRules []authorizationv1.ResourceRule,
+	verbs []string,
+) ([]resources.Resource, error) {
+	apiResourceLists := discovery.FilteredBy(
+		discovery.SupportsAllVerbs{Verbs: verbs},
+		apis,
+	)
+
+	return ComputeAuthorizedResources(apiResourceLists, permissionRules, verbs)
 }
 
 func (c *Collector) resolveNamespace(ctx context.Context) (string, error) {
