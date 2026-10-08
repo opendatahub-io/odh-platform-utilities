@@ -148,10 +148,10 @@ func TestApply_DefaultRequeueAfter(t *testing.T) {
 
 			r, instance := newRequeueTestReconciler(t, tc.defaultRequeueAfter, tc.action)
 
-			requeueAfter, err := r.apply(context.Background(), instance)
+			result, err := r.apply(context.Background(), instance)
 
 			g.Expect(err).ShouldNot(HaveOccurred())
-			g.Expect(requeueAfter).To(Equal(tc.expectedRequeueAfter))
+			g.Expect(result.RequeueAfter).To(Equal(tc.expectedRequeueAfter))
 		})
 	}
 }

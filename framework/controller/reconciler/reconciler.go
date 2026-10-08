@@ -37,6 +37,20 @@ const (
 	DefaultProvisioningConditionType = api.ConditionTypeProvisioningSucceeded
 	DefaultPhaseReady                = "Ready"
 	DefaultPhaseNotReady             = "Not Ready"
+	DefaultPreApplyRequeueAfter      = 30 * time.Second
+
+	conditionReasonAdvisory = "Advisory"
+
+	eventReasonReconcileError     = "ReconcileError"
+	eventReasonProvisioningError  = "ProvisioningError"
+	eventReasonProvisioningPaused = "ProvisioningPaused"
+	eventReasonFinalizationError  = "FinalizationError"
+	eventReasonFinalizationPaused = "FinalizationPaused"
+	eventActionReconcile          = "Reconcile"
+	eventActionProvisioning       = "Provisioning"
+	eventActionFinalization       = "Finalization"
+	provisioningErrorPrefix       = "Provisioning"
+	finalizationErrorPrefix       = "Finalization"
 )
 
 type gvkInfo struct {
@@ -65,8 +79,8 @@ func getChartsBasePath(mgr manager.Manager) string {
 	return ""
 }
 
-// PreApplyFn is a callback invoked before actions in apply().
-// It returns true to stop reconciliation (skip actions).
+// PreApplyFn is a callback invoked before actions in apply(). Returning true
+// skips the action pipeline and creates a terminal pre-apply outcome.
 type PreApplyFn func(ctx context.Context, rr *types.ReconciliationRequest) bool
 
 // PostStatusFn is a callback invoked after conditions and phase have been
@@ -115,11 +129,21 @@ func WithPhaseNames(ready, notReady string) ReconcilerOpt {
 	}
 }
 
-// WithPreApplyFn sets a callback that runs before actions in apply().
-// If it returns true, reconciliation is stopped.
+// WithPreApplyFn sets a callback that runs before actions in apply(). If it
+// returns true, the action pipeline is skipped and reconciliation is paused
+// according to WithPreApplyRequeueAfter.
 func WithPreApplyFn(fn PreApplyFn) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
 		reconciler.preApplyFn = fn
+	}
+}
+
+// WithPreApplyRequeueAfter sets the explicit requeue interval used when the
+// pre-apply callback stops reconciliation. A non-positive duration disables
+// the explicit schedule and uses normal controller-runtime error backoff.
+func WithPreApplyRequeueAfter(d time.Duration) ReconcilerOpt {
+	return func(reconciler *Reconciler) {
+		reconciler.preApplyRequeueAfter = d
 	}
 }
 
@@ -153,7 +177,7 @@ func WithPostStatusFn(fn PostStatusFn) ReconcilerOpt {
 }
 
 // WithDefaultRequeueAfter sets a fallback requeue interval used when reconciliation
-// succeeds and no action requested a specific requeue via errors.RequeueAfterError.
+// succeeds and no action requested a specific requeue via ActionError.
 // Useful for controllers that must periodically poll state not backed by a
 // Kubernetes watch.
 func WithDefaultRequeueAfter(d time.Duration) ReconcilerOpt {
@@ -200,6 +224,7 @@ type Reconciler struct {
 	phaseReady                  string
 	phaseNotReady               string
 	preApplyFn                  PreApplyFn
+	preApplyRequeueAfter        time.Duration
 	postStatusFn                PostStatusFn
 	instanceFactory             func() (api.PlatformObject, error)
 	conditionsAggregator        *conditions.Aggregator
@@ -224,6 +249,7 @@ func NewReconciler[T api.PlatformObject](
 		finalizerName:             DefaultFinalizerName,
 		provisioningConditionType: DefaultProvisioningConditionType,
 		preApplyFailedReason:      "PreConditionFailed",
+		preApplyRequeueAfter:      DefaultPreApplyRequeueAfter,
 		phaseReady:                DefaultPhaseReady,
 		phaseNotReady:             DefaultPhaseNotReady,
 		instanceFactory: func() (api.PlatformObject, error) {
@@ -256,7 +282,6 @@ func NewReconciler[T api.PlatformObject](
 		}
 		cc.conditionsAggregator = aggregator
 	}
-
 	discoveryCli, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, fmt.Errorf("unable to construct a Discovery client: %w", err)
@@ -359,41 +384,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, fmt.Errorf("unable to set GVK to instance: %w", err)
 	}
 
-	if !res.GetDeletionTimestamp().IsZero() {
-		if !controllerutil.ContainsFinalizer(res, r.finalizerName) {
-			return ctrl.Result{}, nil
-		}
-
-		if err := r.delete(ctx, res); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if err := r.removeFinalizer(ctx, res); err != nil {
-			return ctrl.Result{}, err
-		}
-	} else {
-		if err := r.addFinalizer(ctx, res); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		requeueAfter, err := r.apply(ctx, res)
-		if err != nil {
-			var se odherrors.StopError
-			if errors.As(err, &se) && se.RequeueAfter() > 0 {
-				l.Info("reconciliation paused, requeue scheduled",
-					"requeueAfter", se.RequeueAfter(), "reason", se.Error())
-				return ctrl.Result{RequeueAfter: se.RequeueAfter()}, nil
-			}
-			return ctrl.Result{}, err
-		}
-
-		if requeueAfter > 0 {
-			l.V(1).Info("scheduling requeue for DAG timeout", "after", requeueAfter.Truncate(time.Second))
-			return ctrl.Result{RequeueAfter: requeueAfter}, nil
-		}
+	switch {
+	case !res.GetDeletionTimestamp().IsZero():
+		return r.delete(ctx, res)
+	default:
+		return r.apply(ctx, res)
 	}
+}
 
-	return ctrl.Result{}, nil
+func (r *Reconciler) newReconciliationRequest(res api.PlatformObject) types.ReconciliationRequest {
+	return types.ReconciliationRequest{
+		Client:            r.Client,
+		Controller:        r,
+		Instance:          res,
+		Conditions:        conditions.NewManager(res, r.conditionsAggregator),
+		Release:           r.Release,
+		ManifestsBasePath: r.ManifestsBasePath,
+		ChartsBasePath:    r.ChartsBasePath,
+
+		Manifests: make([]types.ManifestInfo, 0),
+	}
 }
 
 func (r *Reconciler) addFinalizer(ctx context.Context, res api.PlatformObject) error {
@@ -407,6 +417,7 @@ func (r *Reconciler) addFinalizer(ctx context.Context, res api.PlatformObject) e
 
 	l := log.FromContext(ctx)
 	l.Info("adding finalizer")
+
 	if err := r.Client.Update(ctx, res); err != nil {
 		return fmt.Errorf("failed to add finalizer %s to %s: %w", r.finalizerName, res.GetName(), err)
 	}
@@ -421,6 +432,7 @@ func (r *Reconciler) removeFinalizer(ctx context.Context, res api.PlatformObject
 
 	l := log.FromContext(ctx)
 	l.Info("removing finalizer")
+
 	if err := r.Client.Update(ctx, res); err != nil {
 		return fmt.Errorf("failed to remove finalizer %s from %s: %w", r.finalizerName, res.GetName(), err)
 	}
@@ -428,79 +440,65 @@ func (r *Reconciler) removeFinalizer(ctx context.Context, res api.PlatformObject
 	return nil
 }
 
-func (r *Reconciler) delete(ctx context.Context, res api.PlatformObject) error {
+func (r *Reconciler) delete(ctx context.Context, res api.PlatformObject) (ctrl.Result, error) {
+	rr := r.newReconciliationRequest(res)
+	return r.deleteRequest(ctx, &rr)
+}
+
+func (r *Reconciler) deleteRequest(ctx context.Context, rr *types.ReconciliationRequest) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(rr.Instance, r.finalizerName) {
+		return ctrl.Result{}, nil
+	}
+
 	l := log.FromContext(ctx)
 	l.Info("delete")
 
-	rr := types.ReconciliationRequest{
-		Client:            r.Client,
-		Controller:        r,
-		Instance:          res,
-		Conditions:        conditions.NewManager(res, r.conditionsAggregator),
-		Release:           r.Release,
-		ManifestsBasePath: r.ManifestsBasePath,
-		ChartsBasePath:    r.ChartsBasePath,
+	result := r.runActions(ctx, rr, r.Finalizer)
+	reconcileResult, err := r.handleActionOutcome(ctx, rr.Instance, result, actionOutcomeConfig{
+		eventAction:       eventActionFinalization,
+		eventReasonError:  eventReasonFinalizationError,
+		eventReasonPaused: eventReasonFinalizationPaused,
+		errorPrefix:       finalizationErrorPrefix,
+	})
 
-		Manifests: make([]types.ManifestInfo, 0),
+	if err != nil || reconcileResult.RequeueAfter > 0 {
+		return reconcileResult, err
 	}
 
-	// NOTE: StopError.RequeueAfter is intentionally ignored during deletion.
-	// A StopError in a finalizer breaks the loop and returns nil, so the
-	// controller will not requeue. Delayed requeue only applies to the
-	// provisioning (apply) path.
-	for _, action := range r.Finalizer {
-		l.V(3).Info("Executing finalizer", "action", action)
-
-		actx := log.IntoContext(
-			ctx,
-			l.WithName(actions.ActionGroup).WithName(action.String()),
-		)
-
-		if err := action(actx, &rr); err != nil {
-			se := odherrors.StopError{}
-			if !errors.As(err, &se) {
-				l.Error(err, "Failed to execute finalizer", "action", action)
-				return err
-			}
-
-			l.V(3).Info("detected stop marker", "action", action)
-			break
-		}
+	if err := r.removeFinalizer(ctx, rr.Instance); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Duration, error) {
+func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (ctrl.Result, error) {
+	rr := r.newReconciliationRequest(res)
+	return r.applyRequest(ctx, &rr)
+}
+
+func (r *Reconciler) applyRequest(ctx context.Context, rr *types.ReconciliationRequest) (ctrl.Result, error) {
 	l := log.FromContext(ctx)
 	l.Info("apply")
 
-	rr := types.ReconciliationRequest{
-		Client:            r.Client,
-		Controller:        r,
-		Instance:          res,
-		Conditions:        conditions.NewManager(res, r.conditionsAggregator),
-		Release:           r.Release,
-		ManifestsBasePath: r.ManifestsBasePath,
-		ChartsBasePath:    r.ChartsBasePath,
-
-		Manifests: make([]types.ManifestInfo, 0),
+	if err := r.addFinalizer(ctx, rr.Instance); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	rr.Conditions.Reset()
 
 	shouldStop := false
 	if r.preApplyFn != nil {
-		shouldStop = r.preApplyFn(ctx, &rr)
+		shouldStop = r.preApplyFn(ctx, rr)
 	}
 
-	var requeueAfter time.Duration
-	var provisionErr error
+	result := odherrors.ActionError{}
 
 	if shouldStop {
 		l.Info("Pre-apply check not met, stopping reconciliation")
 
-		requeueAfter = 30 * time.Second
+		result = odherrors.NewActionError("pre-apply check not met").
+			WithRequeueAfter(r.preApplyRequeueAfter)
 
 		rr.Conditions.MarkFalse(
 			r.provisioningConditionType,
@@ -509,35 +507,23 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 			conditions.WithObservedGeneration(rr.Instance.GetGeneration()),
 		)
 	} else {
-		for _, action := range r.Actions {
-			l.Info("Executing action", "action", action)
+		result = r.runActions(ctx, rr, r.Actions)
 
-			actx := log.IntoContext(
-				ctx,
-				l.WithName(actions.ActionGroup).WithName(action.String()),
-			)
-
-			provisionErr = action(actx, &rr)
-			if provisionErr != nil {
-				re := odherrors.RequeueAfterError{}
-				if errors.As(provisionErr, &re) {
-					requeueAfter = re.After
-					provisionErr = nil
-
-					continue
-				}
-
-				break
-			}
-		}
-
-		if provisionErr != nil {
+		switch result.Type() {
+		case odherrors.ActionErrorTerminal, odherrors.ActionErrorNonBlocking:
 			rr.Conditions.MarkFalse(
 				r.provisioningConditionType,
-				conditions.WithError(provisionErr),
+				conditions.WithError(result),
 				conditions.WithObservedGeneration(rr.Instance.GetGeneration()),
 			)
-		} else {
+		case odherrors.ActionErrorAdvisory:
+			rr.Conditions.MarkTrue(
+				r.provisioningConditionType,
+				conditions.WithReason(conditionReasonAdvisory),
+				conditions.WithMessage(result.Error()),
+				conditions.WithObservedGeneration(rr.Instance.GetGeneration()),
+			)
+		default:
 			rr.Conditions.MarkTrue(
 				r.provisioningConditionType,
 				conditions.WithObservedGeneration(rr.Instance.GetGeneration()),
@@ -563,8 +549,8 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	}
 
 	if r.postStatusFn != nil {
-		if err := r.postStatusFn(ctx, &rr, isHappy); err != nil {
-			return 0, fmt.Errorf("post status hook: %w", err)
+		if err := r.postStatusFn(ctx, rr, isHappy); err != nil {
+			return ctrl.Result{}, errors.Join(fmt.Errorf("post status hook: %w", err), result.Err())
 		}
 	}
 
@@ -583,48 +569,24 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	)
 
 	if err != nil && !k8serr.IsNotFound(err) {
+		reconcileErr := errors.Join(err, result.Err())
 		r.Recorder.Eventf(
-			res,
-			nil,
-			corev1.EventTypeNormal,
-			"ReconcileError",
-			"Reconcile",
-			err.Error(),
-		)
-
-		return 0, fmt.Errorf("reconcile failed: %w", err)
-	}
-
-	if provisionErr != nil {
-		var se odherrors.StopError
-		if errors.As(provisionErr, &se) && se.RequeueAfter() > 0 {
-			r.Recorder.Eventf(
-				res,
-				nil,
-				corev1.EventTypeNormal,
-				"ProvisioningPaused",
-				"Provision",
-				fmt.Sprintf("requeue after %s: %s", se.RequeueAfter(), provisionErr.Error()),
-			)
-
-			return 0, fmt.Errorf("provisioning paused: %w", provisionErr)
-		}
-
-		r.Recorder.Eventf(
-			res,
+			rr.Instance,
 			nil,
 			corev1.EventTypeWarning,
-			"ProvisioningError",
-			"Provision",
-			provisionErr.Error(),
+			eventReasonReconcileError,
+			eventActionReconcile,
+			reconcileErr.Error(),
 		)
 
-		return 0, fmt.Errorf("provisioning failed: %w", provisionErr)
+		return ctrl.Result{}, fmt.Errorf("reconcile failed: %w", reconcileErr)
 	}
 
-	if requeueAfter == 0 {
-		requeueAfter = r.defaultRequeueAfter
-	}
-
-	return requeueAfter, nil
+	return r.handleActionOutcome(ctx, rr.Instance, result, actionOutcomeConfig{
+		eventAction:         eventActionProvisioning,
+		eventReasonError:    eventReasonProvisioningError,
+		eventReasonPaused:   eventReasonProvisioningPaused,
+		errorPrefix:         provisioningErrorPrefix,
+		defaultRequeueAfter: r.defaultRequeueAfter,
+	})
 }

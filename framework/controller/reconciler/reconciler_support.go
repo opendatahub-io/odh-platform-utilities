@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
@@ -53,6 +54,14 @@ type watchInput struct {
 	owned        bool
 	dynamic      bool
 	dynamicPred  []DynamicPredicate
+}
+
+type actionOutcomeConfig struct {
+	eventAction         string
+	eventReasonError    string
+	eventReasonPaused   string
+	errorPrefix         string
+	defaultRequeueAfter time.Duration
 }
 
 type WatchOpts func(*watchInput)
