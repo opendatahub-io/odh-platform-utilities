@@ -32,5 +32,11 @@
 // have completed. Callers should skip GC when nothing was generated to avoid
 // expensive API discovery on no-op reconciles.
 //
+// On OpenShift, Role/RoleBinding/ClusterRole/ClusterRoleBinding exist under both
+// rbac.authorization.k8s.io and authorization.openshift.io. The GC type scan
+// prefers the Kubernetes API when it is both deletable and listable; otherwise it
+// keeps the OpenShift alias alone when that path is both deletable and listable,
+// so the same objects are not listed twice and Forbidden list calls are avoided.
+//
 // See AGENTS.md for detailed usage patterns and examples.
 package gc

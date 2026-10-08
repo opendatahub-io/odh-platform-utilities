@@ -19,6 +19,7 @@ import (
 
 const (
 	VerbDelete  = "delete"
+	VerbList    = "list"
 	VerbAny     = "*"
 	ResourceAny = "*"
 )
@@ -66,6 +67,11 @@ func IsResourceMatchingRule(
 	return false
 }
 
+// HasPermissions checks if the current subject has all required verbs for a
+// specific API resource based on the provided authorization rules.
+//
+// Rules that set ResourceNames are ignored: those grant access only to named
+// objects and cannot authorize collection-wide list/delete used by GC.
 func HasPermissions(
 	group string,
 	apiRes metav1.APIResource,
@@ -78,6 +84,10 @@ func HasPermissions(
 
 	for _, requiredVerb := range requiredVerbs {
 		if !slices.ContainsFunc(permissionRules, func(rule authorizationv1.ResourceRule) bool {
+			if len(rule.ResourceNames) > 0 {
+				return false
+			}
+
 			return (slices.Contains(rule.Verbs, requiredVerb) || slices.Contains(rule.Verbs, VerbAny)) &&
 				IsResourceMatchingRule(group, apiRes, rule)
 		}) {

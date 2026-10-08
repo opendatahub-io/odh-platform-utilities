@@ -167,6 +167,53 @@ func TestHasPermissions_MultipleRequiredVerbs(t *testing.T) {
 	}
 }
 
+func TestHasPermissions_IgnoresResourceNamesScopedRules(t *testing.T) {
+	t.Parallel()
+
+	rules := []authorizationv1.ResourceRule{
+		{
+			APIGroups:     []string{""},
+			Resources:     []string{"configmaps"},
+			Verbs:         []string{"list", "delete"},
+			ResourceNames: []string{"only-this-one"},
+		},
+	}
+
+	apiRes := metav1.APIResource{Name: "configmaps"}
+
+	if gc.HasPermissions("", apiRes, rules, []string{"list"}) {
+		t.Error("expected ResourceNames-scoped rule to be ignored for collection-wide list")
+	}
+
+	if gc.HasPermissions("", apiRes, rules, []string{"delete"}) {
+		t.Error("expected ResourceNames-scoped rule to be ignored for collection-wide delete")
+	}
+}
+
+func TestHasPermissions_ResourceNamesDoesNotBlockCollectionWideRule(t *testing.T) {
+	t.Parallel()
+
+	rules := []authorizationv1.ResourceRule{
+		{
+			APIGroups:     []string{""},
+			Resources:     []string{"configmaps"},
+			Verbs:         []string{"list"},
+			ResourceNames: []string{"only-this-one"},
+		},
+		{
+			APIGroups: []string{""},
+			Resources: []string{"configmaps"},
+			Verbs:     []string{"list", "delete"},
+		},
+	}
+
+	apiRes := metav1.APIResource{Name: "configmaps"}
+
+	if !gc.HasPermissions("", apiRes, rules, []string{"list", "delete"}) {
+		t.Error("expected collection-wide rule to grant permission even when a ResourceNames rule exists")
+	}
+}
+
 func TestComputeAuthorizedResources_Basic(t *testing.T) {
 	t.Parallel()
 

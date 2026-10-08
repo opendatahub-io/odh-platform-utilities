@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -21,6 +20,9 @@ import (
 const (
 	// VerbDelete represents the Kubernetes delete permission verb.
 	VerbDelete = "delete"
+
+	// VerbList represents the Kubernetes list permission verb.
+	VerbList = "list"
 
 	// VerbAny represents a wildcard for any permission verb.
 	VerbAny = "*"
@@ -78,6 +80,9 @@ func IsResourceMatchingRule(
 
 // HasPermissions checks if the current subject has all required verbs for a
 // specific API resource based on the provided authorization rules.
+//
+// Rules that set ResourceNames are ignored: those grant access only to named
+// objects and cannot authorize collection-wide list/delete used by GC.
 func HasPermissions(
 	group string,
 	apiRes metav1.APIResource,
@@ -90,6 +95,10 @@ func HasPermissions(
 
 	for _, requiredVerb := range requiredVerbs {
 		if !slices.ContainsFunc(permissionRules, func(rule authorizationv1.ResourceRule) bool {
+			if len(rule.ResourceNames) > 0 {
+				return false
+			}
+
 			return (slices.Contains(rule.Verbs, requiredVerb) || slices.Contains(rule.Verbs, VerbAny)) &&
 				IsResourceMatchingRule(group, apiRes, rule)
 		}) {
@@ -173,19 +182,12 @@ func ListAuthorizedResources(
 	namespace string,
 	requiredVerbs []string,
 ) ([]resources.Resource, error) {
-	apiResourceLists := discovery.FilteredBy(
-		discovery.SupportsAllVerbs{
-			Verbs: requiredVerbs,
-		},
-		apis,
-	)
-
 	items, err := RetrieveSelfSubjectRules(ctx, cli, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failure retrieving resource rules: %w", err)
 	}
 
-	result, err := ComputeAuthorizedResources(apiResourceLists, items, requiredVerbs)
+	result, err := authorizedResourcesForVerbs(apis, items, requiredVerbs)
 	if err != nil {
 		return nil, fmt.Errorf("failure retrieving authorized resources: %w", err)
 	}
