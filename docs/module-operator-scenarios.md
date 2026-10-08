@@ -868,17 +868,33 @@ Module CRDs are cluster-scoped singletons. Enforce this at two levels:
 
 **Admission webhook** (defense in depth):
 
-```go
-import "github.com/opendatahub-io/odh-platform-utilities/pkg/webhook"
+For framework-based modules, register each admission endpoint before starting
+the manager with `framework/webhook.For(mgr, path, myModuleGVK)`. `OnCreate` accepts a
+CREATE-only function and supplies an uncached API reader. `OnUpdate`,
+`OnDelete`, and `OnConnect` can be chained for other operations. `WithHandler`
+also supplies a decoder for other admission logic. For typed callbacks,
+use `webhook.Validating[*MyModuleCR](mgr, path)` or
+`webhook.Defaulting[*MyModuleCR](mgr, path)`. `WithAdmission`
+customizes the controller-runtime webhook; `WithWebhook` accepts a prebuilt one.
 
-func (w *MyModuleWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-    resp := webhook.ValidateSingletonCreation(ctx, w.Client, w.Request, myModuleGVK)
-    if !resp.Allowed {
-        return nil, errors.New(resp.Result.Message)
-    }
-    return nil, nil
+```go
+// +kubebuilder:webhook:path=/validate-mymodule,mutating=false,failurePolicy=fail,sideEffects=None,groups=example.opendatahub.io,resources=mymodules,verbs=create,versions=v1,name=mymodule-validator.opendatahub.io,admissionReviewVersions=v1
+func SetupWebhook(mgr ctrl.Manager) error {
+    return frameworkwebhook.For(mgr, "/validate-mymodule", myModuleGVK).
+        OnCreate(func(ctx context.Context, req admission.Request, reader client.Reader) admission.Response {
+            return webhookutil.ValidateSingletonCreation(ctx, reader, &req, myModuleGVK)
+        }).Build()
 }
 ```
+
+Keep `+kubebuilder:webhook` markers beside the handlers and run
+`controller-gen webhook` in the module to generate webhook configuration YAML.
+The marker path must equal the path passed to `For`. The module still supplies
+the webhook Service, certificate and CA setup, and any Kustomize changes for
+its deployment. Each endpoint accepts one GVK; typed builders derive it from
+the Go type in the manager's scheme. Conversion webhooks continue to use controller-runtime directly.
+See the [webhook framework guide](webhook-framework.md) for typed validation,
+defaulting, responses, and customization.
 
 **Runtime retrieval:**
 

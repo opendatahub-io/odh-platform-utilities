@@ -66,8 +66,7 @@ pipeline out of the box.
 
 The `framework/` directory is a separate Go module
 (`github.com/opendatahub-io/odh-platform-utilities/framework`) that provides an
-opinionated controller framework built on top of the root module and
-controller-runtime.
+opinionated controller framework built on controller-runtime.
 
 ### Installation
 
@@ -101,6 +100,7 @@ go get github.com/opendatahub-io/odh-platform-utilities/framework
 | `controller/handlers` | Watch event handlers: label-to-name, annotation-to-name, fixed-name routing |
 | `controller/predicates` | Default event-filtering predicates (generation change, label/annotation change, deployment status) |
 | `controller/types` | `ReconciliationRequest`, `ManifestInfo`, `HelmChartInfo`, `TemplateInfo`, and hash utilities |
+| `webhook` | Admission webhook builder; see the [usage guide](./docs/webhook-framework.md) |
 | `metadata` | Annotation suffix constants used by deploy/GC actions |
 | `resources` | Resource helpers: GVK resolution, apply-order sorting, owner references, status apply |
 | `rules` | RBAC rule evaluation: `SelfSubjectRulesReview`, permission checks, authorized resource listing |
