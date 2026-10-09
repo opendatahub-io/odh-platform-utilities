@@ -23,6 +23,18 @@ import (
 
 type fakeSource struct{}
 
+func TestDependentConditions(t *testing.T) {
+	type conditionName string
+
+	got := DependentConditions(conditionName("ModulesReady"), conditionName("ProvisioningProgress"))
+	want := []conditions.DependentDefinition{
+		{Type: api.ConditionType("ModulesReady"), Polarity: conditions.HealthyWhenTrue},
+		{Type: api.ConditionType("ProvisioningProgress"), Polarity: conditions.HealthyWhenTrue},
+	}
+
+	NewWithT(t).Expect(got).To(Equal(want))
+}
+
 type testManager struct {
 	ctrlmanager.Manager
 

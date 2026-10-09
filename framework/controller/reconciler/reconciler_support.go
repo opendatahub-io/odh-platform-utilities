@@ -46,6 +46,20 @@ type forInput struct {
 
 type DynamicPredicate func(context.Context, *types.ReconciliationRequest) bool
 
+// DependentConditions converts condition names to dependencies that are
+// healthy when their status is True.
+func DependentConditions[T ~string](conditionTypes ...T) []conditions.DependentDefinition {
+	definitions := make([]conditions.DependentDefinition, 0, len(conditionTypes))
+	for _, conditionType := range conditionTypes {
+		definitions = append(definitions, conditions.Dependent(
+			api.ConditionType(conditionType),
+			conditions.HealthyWhenTrue,
+		))
+	}
+
+	return definitions
+}
+
 type watchInput struct {
 	object       client.Object
 	eventHandler handler.EventHandler
