@@ -14,13 +14,13 @@ import (
 // Ingress is a configured ingress available for route assignment.
 type Ingress struct {
 	// Name is matched against the Namespace's opendatahub.io/ingress-name annotation.
-	Name string
+	Name string `json:"name"`
 	// GatewayName may differ from Name and is passed through to route consumers.
-	GatewayName      string
-	GatewayNamespace string
+	GatewayName      string `json:"gatewayName"`
+	GatewayNamespace string `json:"gatewayNamespace"`
 	// Hostname is optional passthrough data.
-	Hostname  string
-	IsDefault bool
+	Hostname  string `json:"hostname,omitempty"`
+	IsDefault bool   `json:"isDefault,omitempty"`
 }
 
 // ErrUnknownIngress means the requested ingress, or an absent default, is unavailable.

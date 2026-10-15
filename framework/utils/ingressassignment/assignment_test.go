@@ -2,6 +2,7 @@ package ingressassignment_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -39,6 +40,42 @@ func ingresses() []ingressassignment.Ingress {
 		},
 		{Name: "alpha", GatewayName: "alpha-gateway", GatewayNamespace: "gateways", Hostname: "alpha.example.com"},
 		{Name: "beta", GatewayName: "beta-gateway", GatewayNamespace: "other-gateways"},
+	}
+}
+
+func TestIngressJSON(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		payload string
+		ingress ingressassignment.Ingress
+	}{
+		{
+			name:    "all fields",
+			payload: `{"name":"default","gatewayName":"default-gateway","gatewayNamespace":"gateways","hostname":"default.example.com","isDefault":true}`,
+			ingress: ingressassignment.Ingress{
+				Name: "default", GatewayName: "default-gateway", GatewayNamespace: "gateways",
+				Hostname: "default.example.com", IsDefault: true,
+			},
+		},
+		{
+			name:    "optional fields omitted",
+			payload: `{"name":"beta","gatewayName":"beta-gateway","gatewayNamespace":"other-gateways"}`,
+			ingress: ingressassignment.Ingress{Name: "beta", GatewayName: "beta-gateway", GatewayNamespace: "other-gateways"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var decoded ingressassignment.Ingress
+			require.NoError(t, json.Unmarshal([]byte(tt.payload), &decoded))
+			assert.Equal(t, tt.ingress, decoded)
+
+			encoded, err := json.Marshal(tt.ingress)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.payload, string(encoded))
+		})
 	}
 }
 
