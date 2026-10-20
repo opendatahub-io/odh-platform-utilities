@@ -239,6 +239,13 @@ func TestProfileSpecFromSecurityProfile(t *testing.T) { //nolint:funlen // Table
 	}
 }
 
+func TestGetStrictTLSProfileSpecRejectsUnknownType(t *testing.T) {
+	t.Parallel()
+
+	_, err := pkgtls.GetStrictTLSProfileSpec(&configv1.TLSSecurityProfile{Type: "Unknown"})
+	assert.ErrorIs(t, err, pkgtls.ErrUnsupportedTLSProfileType)
+}
+
 func TestCipherSuitesFromSpec(t *testing.T) {
 	t.Parallel()
 

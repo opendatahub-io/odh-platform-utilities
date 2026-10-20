@@ -117,10 +117,11 @@ func LoadWithAdherence(ctx context.Context, cli client.Reader) (LoadResult, erro
 
 	spec := ProfileSpecFromSecurityProfile(apiServer.Spec.TLSSecurityProfile)
 	if ShouldHonorClusterTLSProfile(adherence) {
-		spec, err = strictProfileSpec(apiServer.Spec.TLSSecurityProfile)
-		if err != nil {
-			return LoadResult{}, fmt.Errorf("invalid strict APIServer TLS profile: %w", err)
+		specValue, specErr := GetStrictTLSProfileSpec(apiServer.Spec.TLSSecurityProfile)
+		if specErr != nil {
+			return LoadResult{}, fmt.Errorf("invalid strict APIServer TLS profile: %w", specErr)
 		}
+		spec = &specValue
 
 		err = ValidateStrictTLSProfile(*spec)
 		if err != nil {

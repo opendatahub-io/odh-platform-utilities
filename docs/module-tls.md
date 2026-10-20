@@ -16,9 +16,9 @@ handling, strict-profile validation, and TLS 1.3 suite filtering for TLS 1.2.
 
 | What you are configuring | Helper | When |
 |--------------------------|--------|------|
-| Webhook server, metrics server | `LoadWithAdherence` then `ConfigFromProfile` | Once, in `main.go` before `mgr.Start` |
+| Webhook server, metrics server | `LoadWithAdherence` then `ConfigFromProfileStrict` | Once, in `main.go` before `mgr.Start` |
 | Reload when profile or adherence changes | `SecurityProfileWatcher` | Only if `LoadWithAdherence` returns `Watchable` |
-| ALPN on process TLS | `controller-runtime-common` `SetNextProtos` and `HTTP2NextProtos` | Alongside `ConfigFromProfile` when HTTP/2 is enabled |
+| ALPN on process TLS | `controller-runtime-common` `SetNextProtos` and `HTTP2NextProtos` | Alongside `ConfigFromProfileStrict` when HTTP/2 is enabled |
 | kube-auth-proxy args (`TLS1.2`) | `FromAPIServerWithCurvePreferences(..., FormatShort)` | Each reconcile (or whenever you render the Deployment) |
 | kube-rbac-proxy args (`VersionTLS12`) | `FromAPIServerWithCurvePreferences(..., FormatGo)` | Same |
 | Explicit CR field / flag of type `TLSSecurityProfile` | `FromProfile` / `FromProfileStrict` or their curve-preference variants | When the module owns the knob and is not reading APIServer |
@@ -93,6 +93,7 @@ startup fallbacks and validates the profile under Strict or unknown adherence:
 import (
     "context"
     "crypto/tls"
+    "fmt"
     "os"
 
     commonTLS "github.com/openshift/controller-runtime-common/pkg/tls"
@@ -124,7 +125,10 @@ func setupTLS(ctx context.Context, restConfig *rest.Config, scheme *runtime.Sche
     if !pkgtls.ShouldHonorClusterTLSProfile(result.AdherencePolicy) {
         profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
     }
-    tlsOpts, unsupported := pkgtls.ConfigFromProfile(profile)
+    tlsOpts, unsupported, err := pkgtls.ConfigFromProfileStrict(profile)
+    if err != nil {
+        return nil, result, fmt.Errorf("validate TLS profile: %w", err)
+    }
     if len(unsupported) > 0 {
         // Log and continue. These names are not implemented by Go crypto/tls.
     }
@@ -200,10 +204,13 @@ profile and policy.
 Do **not** call `SetupWithManager` when `Watchable` is false. The APIServer GVK
 is absent on vanilla Kubernetes and the watch will fail.
 
-`ConfigFromProfile` applies the spec as given and does not set `NextProtos`;
+`ConfigFromProfileStrict` validates the profile before applying it and does not
+set `NextProtos`;
 the `setupTLS` snippet uses `controller-runtime-common` to advertise `h2` with
-`http/1.1` fallback. `LoadWithAdherence` rejects unsupported Strict profiles
-before they reach `ConfigFromProfile`.
+`http/1.1` fallback. Under NoOpinion or Legacy adherence,
+`LoadWithAdherence` uses the documented Intermediate compatibility fallback for
+unknown profile types. Strict adherence rejects malformed profile types and
+unsupported profiles before they reach `ConfigFromProfileStrict`.
 
 ## 2. Operand / proxy TLS flags
 

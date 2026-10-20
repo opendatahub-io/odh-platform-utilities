@@ -30,7 +30,10 @@
 //	if !tls.ShouldHonorClusterTLSProfile(result.AdherencePolicy) {
 //	    profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
 //	}
-//	tlsOpts, unsupported := tls.ConfigFromProfile(profile)
+//	tlsOpts, unsupported, err := tls.ConfigFromProfileStrict(profile)
+//	if err != nil {
+//	    return fmt.Errorf("validate TLS profile: %w", err)
+//	}
 //	if len(unsupported) > 0 {
 //	    setupLog.Info("dropping cipher names unsupported by Go", "ciphers", unsupported)
 //	}
@@ -72,8 +75,12 @@
 // required only when registering SecurityProfileWatcher.
 //
 // On vanilla Kubernetes, LoadWithAdherence falls back to the Intermediate
-// profile with NoOpinion adherence and Watchable false. The adherence-aware
-// proxy helpers do the same for proxy flag strings.
+// profile with NoOpinion adherence and Watchable false. An absent profile is
+// valid and resolves to Intermediate. Under NoOpinion or Legacy adherence,
+// unknown profile types use the documented Intermediate compatibility fallback;
+// Strict adherence rejects them. ConfigFromProfileStrict should be used by
+// callers that convert profile specs directly and need fail-closed validation.
+// The legacy ConfigFromProfile helper remains for compatibility.
 //
 // See ../../docs/module-tls.md for the expected module wiring.
 package tls

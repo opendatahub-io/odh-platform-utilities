@@ -311,6 +311,17 @@ func strictProfileSpec(profile *configv1.TLSSecurityProfile) (*configv1.TLSProfi
 	return spec, nil
 }
 
+// GetStrictTLSProfileSpec resolves a security profile without silently
+// substituting Intermediate for an explicitly malformed profile type.
+// Empty and nil profiles still resolve to the OpenShift Intermediate default.
+func GetStrictTLSProfileSpec(profile *configv1.TLSSecurityProfile) (configv1.TLSProfileSpec, error) {
+	spec, err := strictProfileSpec(profile)
+	if err != nil {
+		return configv1.TLSProfileSpec{}, err
+	}
+	return *spec, nil
+}
+
 func fromProfileStrictSpec(
 	ctx context.Context,
 	spec *configv1.TLSProfileSpec,

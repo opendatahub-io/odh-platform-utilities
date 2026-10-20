@@ -81,6 +81,88 @@ func TestConfigFromProfile_UnsupportedCiphersReported(t *testing.T) {
 	assert.Len(t, cfg.CipherSuites, 1)
 }
 
+func TestConfigFromProfile_DropsRC4Ciphers(t *testing.T) {
+	t.Parallel()
+
+	spec := configv1.TLSProfileSpec{
+		MinTLSVersion: configv1.VersionTLS12,
+		Ciphers:       []string{"RC4-SHA", "TLS_RSA_WITH_RC4_128_SHA", openSSLECDHERSAAES128GCM},
+	}
+	fn, unsupported := pkgtls.ConfigFromProfile(spec)
+	require.NotNil(t, fn)
+	assert.ElementsMatch(t, []string{"RC4-SHA", "TLS_RSA_WITH_RC4_128_SHA"}, unsupported)
+
+	cfg := &tls.Config{}
+	fn(cfg)
+	assert.Equal(t, []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}, cfg.CipherSuites)
+}
+
+func TestConfigFromProfile_DropsUnnameableInsecureCiphers(t *testing.T) {
+	t.Parallel()
+
+	// The ECDHE RSA 3DES suite is implemented by this runtime but no
+	// OpenShift profile can name it (Old carries only the RSA key-exchange
+	// 3DES variant), so the profile cipher vocabulary rejects it.
+	spec := configv1.TLSProfileSpec{
+		MinTLSVersion: configv1.VersionTLS12,
+		Ciphers:       []string{"TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA", openSSLECDHERSAAES128GCM},
+	}
+	fn, unsupported := pkgtls.ConfigFromProfile(spec)
+	require.NotNil(t, fn)
+	assert.ElementsMatch(t, []string{"TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA"}, unsupported)
+
+	cfg := &tls.Config{}
+	fn(cfg)
+	assert.Equal(t, []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}, cfg.CipherSuites)
+}
+
+func TestValidateStrictTLSProfile_RejectsRC4OnlyLists(t *testing.T) {
+	t.Parallel()
+
+	err := pkgtls.ValidateStrictTLSProfile(configv1.TLSProfileSpec{
+		MinTLSVersion: configv1.VersionTLS12,
+		Ciphers:       []string{"TLS_RSA_WITH_RC4_128_SHA"},
+	})
+	assert.ErrorIs(t, err, pkgtls.ErrTLSProfileHasNoSupportedCipherSuites)
+}
+
+func TestConfigFromProfileStrict_RejectsInvalidMinimum(t *testing.T) {
+	t.Parallel()
+
+	fn, unsupported, err := pkgtls.ConfigFromProfileStrict(configv1.TLSProfileSpec{
+		MinTLSVersion: "VersionTLS99",
+	})
+	assert.Nil(t, fn)
+	assert.Nil(t, unsupported)
+	assert.ErrorIs(t, err, pkgtls.ErrUnsupportedTLSProfileVersion)
+}
+
+func TestConfigFromProfileStrict_AcceptsValidProfile(t *testing.T) {
+	t.Parallel()
+
+	fn, unsupported, err := pkgtls.ConfigFromProfileStrict(*configv1.TLSProfiles[configv1.TLSProfileIntermediateType])
+	require.NoError(t, err)
+	require.NotNil(t, fn)
+	assert.NotEmpty(t, unsupported)
+}
+
+func TestConfigFromProfile_ReportsMappedButUnimplementedCipher(t *testing.T) {
+	t.Parallel()
+
+	fn, unsupported := pkgtls.ConfigFromProfile(configv1.TLSProfileSpec{
+		MinTLSVersion: configv1.VersionTLS12,
+		Ciphers:       []string{"DHE-RSA-AES128-GCM-SHA256"},
+	})
+	require.NotNil(t, fn)
+	assert.Equal(t, []string{"DHE-RSA-AES128-GCM-SHA256"}, unsupported)
+
+	_, unsupported = pkgtls.ConfigFromProfile(configv1.TLSProfileSpec{
+		MinTLSVersion: configv1.VersionTLS12,
+		Ciphers:       []string{"ECDHE-RSA-AES256-SHA384"},
+	})
+	assert.Equal(t, []string{"ECDHE-RSA-AES256-SHA384"}, unsupported)
+}
+
 func TestConfigFromProfile_TLS10HonorsOldProfile(t *testing.T) {
 	t.Parallel()
 

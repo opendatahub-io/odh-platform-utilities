@@ -209,7 +209,8 @@ both behind `github.com/opendatahub-io/odh-platform-utilities/framework/tls`.
 
 | Operator / CRC symbol | Shared library | Notes |
 |----------------------|----------------|-------|
-| `pkg/tls.ProfileSpecFromSecurityProfile` | `framework/tls.ProfileSpecFromSecurityProfile` | Custom with nil spec still falls back to Intermediate |
+| `pkg/tls.ProfileSpecFromSecurityProfile` | `framework/tls.ProfileSpecFromSecurityProfile` | Compatibility helper; absent profiles fall back to Intermediate |
+| — | `framework/tls.GetStrictTLSProfileSpec` | Rejects explicitly unknown types and nil Custom profiles |
 | `pkg/tls.MinVersionFromSpec` | `framework/tls.MinVersionFromSpec` | Short (`TLS1.2`) and Go (`VersionTLS12`) formats |
 | `pkg/tls.CipherSuitesFromSpec` | `framework/tls.CipherSuitesFromSpec` | Unchanged |
 | `pkg/tls.FromProfile` | `framework/tls.FromProfile` | Unchanged |
@@ -220,9 +221,9 @@ both behind `github.com/opendatahub-io/odh-platform-utilities/framework/tls`.
 | `pkg/tls.ShouldHonorClusterTLSProfile` | `framework/tls.ShouldHonorClusterTLSProfile` | Unknown adherence values fail closed as Strict |
 | `pkg/tls.ValidateStrictManagerTLSProfile` | `framework/tls.ValidateStrictTLSProfile` | Validates TLS versions, ciphers, and groups representable by Go |
 | CRC `FetchAPIServerTLSProfile` | `framework/tls.FetchAPIServerTLSProfile` | Errors on Get failure; use `LoadWithAdherence` for policy-aware startup |
-| CRC `NewTLSConfigFromProfile` | `framework/tls.ConfigFromProfile` | Also maps `Groups` onto `CurvePreferences` |
+| CRC `NewTLSConfigFromProfile` | `framework/tls.ConfigFromProfileStrict` | Validates before conversion and also maps `Groups` onto `CurvePreferences`; use `ConfigFromProfile` only for compatibility paths |
 | CRC `SecurityProfileWatcher` | `framework/tls.SecurityProfileWatcher` | Watches profile and adherence changes |
-| `cmd/main.go` `fetchTLSProfile` | `framework/tls.LoadWithAdherence` | Returns profile, adherence, and watchability; validates Strict profiles |
+| `cmd/main.go` `fetchTLSProfile` | `framework/tls.LoadWithAdherence` | Returns profile, adherence, and watchability; uses Intermediate fallback for malformed types under NoOpinion/Legacy and validates applied Strict profiles |
 
 Callers must `configv1.Install(scheme)` and grant `get` on
 `apiservers.config.openshift.io`. Grant `list` and `watch` only when
