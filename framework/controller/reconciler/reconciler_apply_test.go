@@ -20,6 +20,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	. "github.com/onsi/gomega"
 )
@@ -84,6 +85,8 @@ func newApplyTestReconciler(
 		provisioningConditionType: DefaultProvisioningConditionType,
 		phaseReady:                DefaultPhaseReady,
 		phaseNotReady:             DefaultPhaseNotReady,
+		preApplyFailedReason:      "PreConditionFailed",
+		preApplyRequeueAfter:      DefaultPreApplyRequeueAfter,
 		skipConditionCleanup:      true,
 		conditionsAggregator: mustNewAggregator(
 			conditions.Dependent(DefaultProvisioningConditionType, conditions.HealthyWhenTrue),
@@ -131,30 +134,28 @@ func TestApply(t *testing.T) { //nolint:funlen
 		{
 			name:           "non-StopError emits ProvisioningError warning",
 			actionErr:      errors.New("something broke"),
-			wantErr:        "provisioning failed",
+			wantErr:        "Provisioning failed",
 			wantStopError:  false,
 			wantEventCount: 1,
 			wantEventType:  corev1.EventTypeWarning,
-			wantReason:     "ProvisioningError",
+			wantReason:     eventReasonProvisioningError,
 		},
 		{
 			name:           "StopError without requeueAfter emits ProvisioningError warning",
 			actionErr:      odherrors.NewStopError("missing dependency"),
-			wantErr:        "provisioning failed",
+			wantErr:        "Provisioning failed",
 			wantStopError:  true,
 			wantEventCount: 1,
 			wantEventType:  corev1.EventTypeWarning,
-			wantReason:     "ProvisioningError",
+			wantReason:     eventReasonProvisioningError,
 		},
 		{
 			name:             "StopError with requeueAfter emits ProvisioningPaused normal event",
 			actionErr:        odherrors.NewStopError("waiting for configmap").WithRequeueAfter(30 * time.Second),
-			wantErr:          "provisioning paused",
-			wantStopError:    true,
 			wantRequeueAfter: 30 * time.Second,
 			wantEventCount:   1,
 			wantEventType:    corev1.EventTypeNormal,
-			wantReason:       "ProvisioningPaused",
+			wantReason:       eventReasonProvisioningPaused,
 			wantNote:         "requeue after 30s",
 		},
 	}
@@ -172,11 +173,11 @@ func TestApply(t *testing.T) { //nolint:funlen
 			})
 
 			obj := newNamedTestObject()
-			requeueAfter, err := r.apply(ctx, obj)
+			result, err := r.apply(ctx, obj)
 
 			if tc.wantErr != "" {
 				g.Expect(err).Should(MatchError(ContainSubstring(tc.wantErr)))
-				g.Expect(requeueAfter).To(BeZero())
+				g.Expect(result.RequeueAfter).To(BeZero())
 
 				if tc.wantStopError {
 					g.Expect(err).To(MatchError(isStopError, "IsStopError"))
@@ -186,7 +187,7 @@ func TestApply(t *testing.T) { //nolint:funlen
 				}
 			} else {
 				g.Expect(err).ShouldNot(HaveOccurred())
-				g.Expect(requeueAfter).To(Equal(tc.wantRequeueAfter))
+				g.Expect(result.RequeueAfter).To(Equal(tc.wantRequeueAfter))
 			}
 
 			g.Expect(recorder.events).To(HaveLen(tc.wantEventCount))
@@ -201,6 +202,123 @@ func TestApply(t *testing.T) { //nolint:funlen
 			}
 		})
 	}
+}
+
+func TestApply_PreApplyPause(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		configured       bool
+		configure        time.Duration
+		wantErr          string
+		wantRequeueAfter time.Duration
+		wantEventType    string
+		wantEventReason  string
+	}{
+		{
+			name:             "uses the default pause interval",
+			wantRequeueAfter: DefaultPreApplyRequeueAfter,
+			wantEventType:    corev1.EventTypeNormal,
+			wantEventReason:  eventReasonProvisioningPaused,
+		},
+		{
+			name:             "uses the configured pause interval",
+			configured:       true,
+			configure:        45 * time.Second,
+			wantRequeueAfter: 45 * time.Second,
+			wantEventType:    corev1.EventTypeNormal,
+			wantEventReason:  eventReasonProvisioningPaused,
+		},
+		{
+			name:            "uses error backoff when the pause interval is disabled",
+			configured:      true,
+			configure:       0,
+			wantErr:         "pre-apply check not met",
+			wantEventType:   corev1.EventTypeWarning,
+			wantEventReason: eventReasonProvisioningError,
+		},
+		{
+			name:            "uses error backoff when the pause interval is negative",
+			configured:      true,
+			configure:       -time.Second,
+			wantErr:         "pre-apply check not met",
+			wantEventType:   corev1.EventTypeWarning,
+			wantEventReason: eventReasonProvisioningError,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+			var calls int
+			recorder := &mockRecorder{}
+			r := newApplyTestReconciler(recorder, func(context.Context, *types.ReconciliationRequest) error {
+				calls++
+				return nil
+			})
+			r.preApplyFn = func(context.Context, *types.ReconciliationRequest) bool {
+				return true
+			}
+			if tc.configured {
+				WithPreApplyRequeueAfter(tc.configure)(r)
+			}
+
+			obj := newNamedTestObject()
+			result, err := r.apply(t.Context(), obj)
+
+			if tc.wantErr != "" {
+				g.Expect(err).To(MatchError(ContainSubstring(tc.wantErr)))
+				g.Expect(result).To(Equal(ctrl.Result{}))
+			} else {
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(result.RequeueAfter).To(Equal(tc.wantRequeueAfter))
+			}
+
+			g.Expect(calls).To(BeZero())
+			condition := conditions.FindStatusCondition(obj, string(DefaultProvisioningConditionType))
+			g.Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(condition.Reason).To(Equal(r.preApplyFailedReason))
+			g.Expect(recorder.events).To(HaveLen(1))
+			g.Expect(recorder.events[0].eventType).To(Equal(tc.wantEventType))
+			g.Expect(recorder.events[0].reason).To(Equal(tc.wantEventReason))
+
+			if tc.wantRequeueAfter > 0 {
+				g.Expect(recorder.events[0].note).To(ContainSubstring("requeue after " + tc.wantRequeueAfter.String()))
+			}
+		})
+	}
+}
+
+func TestApply_StatusWriteErrorEmitsWarning(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+	statusErr := errors.New("status write failed")
+	recorder := &mockRecorder{}
+	r := newApplyTestReconciler(recorder, func(context.Context, *types.ReconciliationRequest) error {
+		return nil
+	})
+	r.Client = fake.NewClientBuilder().
+		WithScheme(r.Scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: func(context.Context, client.Client, string, runtime.ApplyConfiguration, ...client.SubResourceApplyOption) error {
+				return statusErr
+			},
+		}).
+		Build()
+
+	result, err := r.apply(t.Context(), newNamedTestObject())
+
+	g.Expect(result).To(Equal(ctrl.Result{}))
+	g.Expect(err).To(MatchError(ContainSubstring(statusErr.Error())))
+	g.Expect(errors.Is(err, statusErr)).To(BeTrue())
+	g.Expect(recorder.events).To(HaveLen(1))
+	g.Expect(recorder.events[0].eventType).To(Equal(corev1.EventTypeWarning))
+	g.Expect(recorder.events[0].reason).To(Equal(eventReasonReconcileError))
+	g.Expect(recorder.events[0].action).To(Equal(eventActionReconcile))
+	g.Expect(recorder.events[0].note).To(ContainSubstring(statusErr.Error()))
 }
 
 func TestNewReconciler_DefaultAggregatorTracksProvisioning(t *testing.T) {
@@ -220,7 +338,7 @@ func TestNewReconciler_DefaultAggregatorTracksProvisioning(t *testing.T) {
 
 	obj := newConditionAwareObject()
 	_, err = r.apply(t.Context(), obj)
-	g.Expect(err).Should(MatchError(ContainSubstring("provisioning failed")))
+	g.Expect(err).Should(MatchError(ContainSubstring("Provisioning failed")))
 
 	ready := conditions.FindStatusCondition(obj, string(DefaultHappyCondition))
 	g.Expect(ready).ToNot(BeNil())
@@ -293,4 +411,25 @@ func TestReconcile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApply_PostStatusErrorPreservesActionError(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+	actionErr := errors.New("render failed")
+	hookErr := errors.New("post status failed")
+	r := newApplyTestReconciler(&mockRecorder{}, func(_ context.Context, _ *types.ReconciliationRequest) error {
+		return actionErr
+	})
+	r.postStatusFn = func(context.Context, *types.ReconciliationRequest, bool) error {
+		return hookErr
+	}
+
+	_, err := r.apply(t.Context(), newNamedTestObject())
+
+	g.Expect(err).To(MatchError(ContainSubstring(actionErr.Error())))
+	g.Expect(err).To(MatchError(ContainSubstring(hookErr.Error())))
+	g.Expect(errors.Is(err, actionErr)).To(BeTrue())
+	g.Expect(errors.Is(err, hookErr)).To(BeTrue())
 }
