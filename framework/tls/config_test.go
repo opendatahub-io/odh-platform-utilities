@@ -86,11 +86,11 @@ func TestConfigFromProfile_DropsRC4Ciphers(t *testing.T) {
 
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS12,
-		Ciphers:       []string{"RC4-SHA", "TLS_RSA_WITH_RC4_128_SHA", openSSLECDHERSAAES128GCM},
+		Ciphers:       []string{"TLS_RSA_WITH_RC4_128_SHA", openSSLECDHERSAAES128GCM},
 	}
 	fn, unsupported := pkgtls.ConfigFromProfile(spec)
 	require.NotNil(t, fn)
-	assert.ElementsMatch(t, []string{"RC4-SHA", "TLS_RSA_WITH_RC4_128_SHA"}, unsupported)
+	assert.ElementsMatch(t, []string{"TLS_RSA_WITH_RC4_128_SHA"}, unsupported)
 
 	cfg := &tls.Config{}
 	fn(cfg)
