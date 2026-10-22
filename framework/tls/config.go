@@ -2,6 +2,7 @@ package tls
 
 import (
 	"crypto/tls"
+	"strings"
 
 	configv1 "github.com/openshift/api/config/v1"
 	commonTLS "github.com/openshift/controller-runtime-common/pkg/tls"
@@ -29,14 +30,13 @@ func ConfigFromProfile(profile configv1.TLSProfileSpec) (func(*tls.Config), []st
 		profile.Ciphers, unsupportedTLS13 = filterTLS13CipherSuites(profile.Ciphers)
 	}
 
-	// Ciphers no OpenShift profile can name (RC4 suites, per RFC 7465) are
-	// filtered before delegating to controller-runtime-common, whose pinned
-	// version still maps and applies RC4 names.
-	var unsupportedUnnameable []string
-	profile.Ciphers, unsupportedUnnameable = filterUnnameableCipherSuites(profile.Ciphers)
+	// RC4 is filtered before delegating to controller-runtime-common, whose
+	// pinned version still maps and applies RC4 names.
+	var unsupportedRC4 []string
+	profile.Ciphers, unsupportedRC4 = filterRC4CipherSuites(profile.Ciphers)
 
 	tlsConfig, unsupported := commonTLS.NewTLSConfigFromProfile(profile)
-	return tlsConfig, append(append(unsupported, unsupportedTLS13...), unsupportedUnnameable...)
+	return tlsConfig, append(append(unsupported, unsupportedTLS13...), unsupportedRC4...)
 }
 
 // ConfigFromProfileStrict validates a TLS profile before converting it to
@@ -50,33 +50,12 @@ func ConfigFromProfileStrict(profile configv1.TLSProfileSpec) (func(*tls.Config)
 	return tlsConfig, unsupported, nil
 }
 
-// unnameableInsecureCipherIDs is the set of cipher suite IDs from Go's
-// insecure table that no OpenShift TLS profile can name. RC4 suites are
-// negotiable by the Go runtime (they appear in tls.InsecureCipherSuites)
-// but RFC 7465 prohibits them and no profile contains one, so profiles
-// naming such a suite are treated as unsupported rather than honored.
-var unnameableInsecureCipherIDs = func() map[uint16]bool {
-	profileNames := make(map[string]bool)
-	for _, spec := range configv1.TLSProfiles {
-		for _, name := range ocpcrypto.OpenSSLToIANACipherSuites(spec.Ciphers) {
-			profileNames[name] = true
-		}
-	}
-	ids := make(map[uint16]bool)
-	for _, suite := range tls.InsecureCipherSuites() {
-		if !profileNames[suite.Name] {
-			ids[suite.ID] = true
-		}
-	}
-	return ids
-}()
-
 func cipherCode(cipher string) uint16 {
 	code, ok := resolveCipherCode(cipher)
 	if !ok {
 		return 0
 	}
-	return maskUnnameableInsecure(code)
+	return maskRC4(code)
 }
 
 func resolveCipherCode(cipher string) (uint16, bool) {
@@ -96,22 +75,16 @@ func resolveCipherCode(cipher string) (uint16, bool) {
 	return code, true
 }
 
-// maskUnnameableInsecure maps IDs of insecure suites no OpenShift profile
-// can name to 0, so those names are handled like unsupported ciphers
-// everywhere cipherCode is used.
-func maskUnnameableInsecure(code uint16) uint16 {
-	if unnameableInsecureCipherIDs[code] {
+func maskRC4(code uint16) uint16 {
+	if isRC4CipherID(code) {
 		return 0
 	}
 	return code
 }
 
-// filterUnnameableCipherSuites removes suites no OpenShift profile can name
-// by their resolved IDs, in IANA or OpenSSL name form. It resolves names
-// directly instead of via cipherCode, which masks those IDs to 0.
-func filterUnnameableCipherSuites(ciphers []string) (filtered, removed []string) {
+func filterRC4CipherSuites(ciphers []string) (filtered, removed []string) {
 	for _, cipher := range ciphers {
-		if isUnnameableInsecureCipher(cipher) {
+		if isRC4CipherName(cipher) {
 			removed = append(removed, cipher)
 			continue
 		}
@@ -121,13 +94,17 @@ func filterUnnameableCipherSuites(ciphers []string) (filtered, removed []string)
 	return filtered, removed
 }
 
-func isUnnameableInsecureCipher(cipher string) bool {
+func isRC4CipherName(cipher string) bool {
 	code, ok := resolveCipherCode(cipher)
 	if !ok {
 		return false
 	}
 
-	return unnameableInsecureCipherIDs[code]
+	return isRC4CipherID(code)
+}
+
+func isRC4CipherID(code uint16) bool {
+	return strings.Contains(tls.CipherSuiteName(code), "RC4")
 }
 
 func filterTLS13CipherSuites(ciphers []string) (filtered, removed []string) {
