@@ -97,23 +97,21 @@ func TestConfigFromProfile_DropsRC4Ciphers(t *testing.T) {
 	assert.Equal(t, []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}, cfg.CipherSuites)
 }
 
-func TestConfigFromProfile_DropsUnnameableInsecureCiphers(t *testing.T) {
+func TestConfigFromProfile_RetainsImplementedCustomCiphers(t *testing.T) {
 	t.Parallel()
 
-	// The ECDHE RSA 3DES suite is implemented by this runtime but no
-	// OpenShift profile can name it (Old carries only the RSA key-exchange
-	// 3DES variant), so the profile cipher vocabulary rejects it.
+	// Custom profiles may request any cipher implemented by the runtime.
 	spec := configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS12,
 		Ciphers:       []string{"TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA", openSSLECDHERSAAES128GCM},
 	}
 	fn, unsupported := pkgtls.ConfigFromProfile(spec)
 	require.NotNil(t, fn)
-	assert.ElementsMatch(t, []string{"TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA"}, unsupported)
+	assert.Empty(t, unsupported)
 
 	cfg := &tls.Config{}
 	fn(cfg)
-	assert.Equal(t, []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}, cfg.CipherSuites)
+	assert.Equal(t, []uint16{tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}, cfg.CipherSuites)
 }
 
 func TestValidateStrictTLSProfile_RejectsRC4OnlyLists(t *testing.T) {
