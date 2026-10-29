@@ -1,49 +1,11 @@
 name: Manage LGTM Label
 
 on:
-  pull_request_review:
-    types: [submitted]
   pull_request_target:
     types: [synchronize]
 
 jobs:
-  add-lgtm-on-approval:
-    if: >-
-      github.event_name == 'pull_request_review' &&
-      github.event.review.state == 'approved' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const pull_number = context.payload.pull_request.number;
-            const { data: pullRequest } = await github.rest.pulls.get({
-              owner,
-              repo,
-              pull_number,
-            });
-
-            if (context.payload.review.commit_id !== pullRequest.head.sha) {
-              core.info('The approval is for an outdated commit');
-              return;
-            }
-
-            await github.rest.issues.addLabels({
-              owner,
-              repo,
-              issue_number: pull_number,
-              labels: ['lgtm'],
-            });
-
   remove-lgtm-on-push:
-    if: >-
-      github.event_name == 'pull_request_target' &&
-      github.event.action == 'synchronize' &&
-      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
