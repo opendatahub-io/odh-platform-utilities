@@ -125,7 +125,7 @@ func TestPostStatusFn(t *testing.T) {
 
 		obj := newConditionAwareObject()
 		_, err := r.apply(ctx, obj)
-		g.Expect(err).Should(MatchError(ContainSubstring("provisioning failed")))
+		g.Expect(err).Should(MatchError(ContainSubstring("Provisioning failed")))
 		g.Expect(capturedHappy).To(BeFalse())
 	})
 

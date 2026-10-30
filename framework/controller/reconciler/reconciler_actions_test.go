@@ -37,10 +37,12 @@ func (t *testPlatformObject) GetStatus() *api.Status {
 }
 
 func (t *testPlatformObject) GetConditions() []api.Condition {
-	return nil
+	return t.status.Conditions
 }
 
-func (t *testPlatformObject) SetConditions(_ []api.Condition) {}
+func (t *testPlatformObject) SetConditions(conditions []api.Condition) {
+	t.status.Conditions = conditions
+}
 
 func newTestPlatformObject(gvk schema.GroupVersionKind, opts ...func(*unstructured.Unstructured)) *testPlatformObject {
 	obj := &testPlatformObject{}
