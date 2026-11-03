@@ -56,6 +56,7 @@ func (s SortFn) Then(then SortFn) SortFn {
 // the same create or patch machinery implemented as part of deploy.DeployManifestsFromPath.
 type Action struct {
 	fieldOwner            string
+	crdFieldOwner         string
 	deployMode            Mode
 	partOfLabelKey        string
 	defaultPartOfLabelKey string
@@ -73,9 +74,21 @@ type Action struct {
 
 type ActionOpts func(*Action)
 
+// WithFieldOwner sets the SSA field owner for non-CRD resources. If empty,
+// the lowercased Kind of the reconciled instance is used.
 func WithFieldOwner(value string) ActionOpts {
 	return func(action *Action) {
 		action.fieldOwner = value
+	}
+}
+
+// WithCRDFieldOwner sets the SSA field owner used for CustomResourceDefinition
+// resources, in both SSA and patch mode. If empty, the default platform field
+// owner (resources.PlatformFieldOwner) is used. It does not affect the field
+// owner of non-CRD resources, which is controlled by WithFieldOwner.
+func WithCRDFieldOwner(value string) ActionOpts {
+	return func(action *Action) {
+		action.crdFieldOwner = value
 	}
 }
 
@@ -208,6 +221,17 @@ func (a *Action) resolveFieldOwner(rr *odhTypes.ReconciliationRequest) (string, 
 	}
 
 	return strings.ToLower(kind), nil
+}
+
+// resolveCRDFieldOwner returns the effective field owner for
+// CustomResourceDefinition resources, defaulting to the platform field owner
+// when no value is set.
+func (a *Action) resolveCRDFieldOwner() string {
+	if a.crdFieldOwner != "" {
+		return a.crdFieldOwner
+	}
+
+	return resources.PlatformFieldOwner
 }
 
 func (a *Action) run(ctx context.Context, rr *odhTypes.ReconciliationRequest) error {
@@ -386,13 +410,15 @@ func (a *Action) deployCRD(
 
 	var deployedObj *unstructured.Unstructured
 
+	fo := a.resolveCRDFieldOwner()
+
 	patchOps := []client.PatchOption{
 		client.ForceOwnership,
-		client.FieldOwner(resources.PlatformFieldOwner),
+		client.FieldOwner(fo),
 	}
 	applyOps := []client.ApplyOption{
 		client.ForceOwnership,
-		client.FieldOwner(resources.PlatformFieldOwner),
+		client.FieldOwner(fo),
 	}
 
 	switch a.deployMode {
@@ -613,6 +639,7 @@ func (a *Action) shouldOwn(rr *odhTypes.ReconciliationRequest, objGVK schema.Gro
 func NewAction(opts ...ActionOpts) actions.Fn {
 	action := Action{
 		deployMode:            ModeSSA,
+		crdFieldOwner:         resources.PlatformFieldOwner,
 		partOfLabelKey:        DefaultPartOfLabelKey,
 		defaultPartOfLabelKey: DefaultPartOfLabelKey,
 		partOfLabelDefault:    DefaultPartOfLabelValue,
