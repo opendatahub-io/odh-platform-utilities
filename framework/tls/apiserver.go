@@ -134,12 +134,26 @@ func LoadWithAdherence(ctx context.Context, cli client.Reader) (LoadResult, erro
 
 func loadFallback(err error) (LoadResult, bool) {
 	switch {
-	case k8serr.IsNotFound(err) || meta.IsNoMatchError(err):
+	case meta.IsNoMatchError(err):
+		// The config.openshift.io API is not served (vanilla Kubernetes):
+		// there is nothing to watch.
 		return LoadResult{
 			Spec:            intermediateSpec(),
 			AdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
 			UsedFallback:    true,
 			Watchable:       false,
+		}, true
+	case k8serr.IsNotFound(err):
+		// The API is served but the APIServer object is missing (bootstrap
+		// race on OpenShift): keep the result watchable so consumers that
+		// register a profile watcher pick up the object once it is created
+		// instead of serving the Intermediate fallback until an unrelated
+		// process restart.
+		return LoadResult{
+			Spec:            intermediateSpec(),
+			AdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
+			UsedFallback:    true,
+			Watchable:       true,
 		}, true
 	case isTransientAPIError(err):
 		return LoadResult{
