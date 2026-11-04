@@ -2,6 +2,7 @@ package tls
 
 import (
 	"context"
+	cryptotls "crypto/tls"
 	"crypto/x509"
 	"errors"
 	"io"
@@ -71,5 +72,23 @@ func TestIsTransientAPIError_TransportErrors(t *testing.T) {
 				t.Errorf("isTransientAPIError(%v) = %v, want %v", tt.err, got, tt.transient)
 			}
 		})
+	}
+}
+
+func TestIsTransientAPIError_CertificateErrorInOpError(t *testing.T) {
+	t.Parallel()
+
+	// An HTTPS proxy presenting an untrusted certificate can wrap the
+	// verification failure in *net.OpError; this must NOT be transient.
+	certErr := cryptotls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}
+	opErr := &net.OpError{Op: "remote error", Err: &certErr}
+	if isTransientAPIError(opErr) {
+		t.Errorf("certificate verification failure wrapped in *net.OpError must not be transient")
+	}
+
+	// A plain connection reset in *net.OpError IS transient.
+	resetErr := &net.OpError{Op: "dial", Err: errors.New("connection reset by peer")}
+	if !isTransientAPIError(resetErr) {
+		t.Errorf("connection reset wrapped in *net.OpError must be transient")
 	}
 }

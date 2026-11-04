@@ -2,6 +2,7 @@ package tls
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -245,7 +246,13 @@ func isTransientAPIError(err error) bool {
 	// (*net.DNSError), and incomplete response bodies (io.ErrUnexpectedEOF).
 	// Do NOT match the broad net.Error interface: *url.Error satisfies it
 	// and can wrap TLS certificate verification failures, which must fail
-	// closed.
+	// closed. *net.OpError can also wrap certificate failures when an
+	// HTTPS proxy presents an untrusted certificate, so exclude those
+	// before matching the retryable connection-level causes.
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return false
+	}
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		return true
