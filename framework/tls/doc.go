@@ -74,8 +74,11 @@
 // Required RBAC: get on apiservers.config.openshift.io. list and watch are
 // required only when registering SecurityProfileWatcher.
 //
-// On vanilla Kubernetes, LoadWithAdherence falls back to the Intermediate
-// profile with NoOpinion adherence and Watchable false. An absent profile is
+// On vanilla Kubernetes (config.openshift.io API absent), LoadWithAdherence
+// falls back to the Intermediate profile with NoOpinion adherence and Watchable
+// false. A missing APIServer object (NotFound, the API is served) also falls
+// back to Intermediate but keeps Watchable true, so a registered
+// SecurityProfileWatcher detects the object's creation. An absent profile is
 // valid and resolves to Intermediate. Under NoOpinion or Legacy adherence,
 // unknown profile types use the documented Intermediate compatibility fallback;
 // Strict adherence rejects them. ConfigFromProfileStrict should be used by

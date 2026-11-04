@@ -82,7 +82,9 @@ func FromAPIServer(ctx context.Context, cli client.Reader, format VersionFormat)
 // LoadWithAdherence when configuring SecurityProfileWatcher.OnAdherencePolicyChange.
 //
 //   - success: cluster spec, Watchable true
-//   - API absent (NotFound / NoMatch): Intermediate, Watchable false
+//   - API absent (NoMatch, vanilla Kubernetes): Intermediate, Watchable false
+//   - object missing (NotFound, API is served): Intermediate, Watchable true
+//     (watcher registers and detects the object's creation)
 //   - transient API error: Intermediate, Watchable true (watcher can self-heal)
 //   - unexpected error: returned so the caller can refuse to start
 func Load(ctx context.Context, cli client.Reader) (LoadResult, error) {
