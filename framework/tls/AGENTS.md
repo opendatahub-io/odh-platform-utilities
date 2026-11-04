@@ -30,7 +30,8 @@ Do not import `opendatahub-operator` internals.
 | Situation | `FromAPIServer` | `Load` |
 |---|---|---|
 | Success | cluster profile strings | cluster spec, `Watchable=true` |
-| `NotFound` / `NoMatchError` | Intermediate, no error | Intermediate, `Watchable=false` |
+| `NotFound` (API served, object missing) | Intermediate, no error | Intermediate, `Watchable=true` (watcher detects creation) |
+| `NoMatchError` (API not served) | Intermediate, no error | Intermediate, `Watchable=false` |
 | Transient (unavailable, timeout, 429, context deadline) | error | Intermediate, `Watchable=true` |
 | Other errors (forbidden, etc.) | error | error (caller should refuse to start) |
 

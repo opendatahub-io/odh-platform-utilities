@@ -85,7 +85,8 @@ startup fallbacks and validates the profile under Strict or unknown adherence:
 |---------------|--------|-------------------|
 | Strict/unknown adherence, valid profile | cluster profile + adherence policy | yes (`Watchable`) |
 | NoOpinion/Legacy adherence | resolved profile + policy; caller uses its legacy defaults | yes (`Watchable`) |
-| Not OpenShift / CR missing | Intermediate + NoOpinion | no |
+| OpenShift API unavailable (NoMatch) | Intermediate + NoOpinion | no |
+| APIServer object missing (NotFound, API served) | Intermediate + NoOpinion | yes (`Watchable`, watcher detects creation) |
 | Transient API error | Intermediate + NoOpinion | yes (self-heals) |
 | Invalid Strict profile or unexpected API error | error | refuse to start |
 

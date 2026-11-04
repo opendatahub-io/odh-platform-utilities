@@ -236,14 +236,15 @@ func TestLoad(t *testing.T) { //nolint:funlen // Fallback-policy cases for manag
 		assert.Equal(t, configv1.VersionTLS13, result.Spec.MinTLSVersion)
 	})
 
-	t.Run("not found is not watchable", func(t *testing.T) {
+	t.Run("not found is watchable so creation is detected", func(t *testing.T) {
 		t.Parallel()
 
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 		result, err := pkgtls.Load(ctx, cli)
 		require.NoError(t, err)
-		assert.False(t, result.Watchable)
+		assert.True(t, result.Watchable, "the API is served; the watcher must catch the object's creation")
+		assert.True(t, result.UsedFallback)
 		assert.Equal(t, intermediate.MinTLSVersion, result.Spec.MinTLSVersion)
 		assert.Equal(t, intermediate.Ciphers, result.Spec.Ciphers)
 	})

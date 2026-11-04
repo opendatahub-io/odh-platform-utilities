@@ -719,14 +719,15 @@ func TestLoadWithAdherence(t *testing.T) { //nolint:funlen // Startup fallback a
 		require.ErrorContains(t, err, "no cipher suites supported")
 	})
 
-	t.Run("missing APIServer uses intermediate defaults and is not watchable", func(t *testing.T) {
+	t.Run("missing APIServer uses intermediate defaults and stays watchable", func(t *testing.T) {
 		t.Parallel()
 
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 		result, err := pkgtls.LoadWithAdherence(context.Background(), cli)
 		require.NoError(t, err)
-		assert.False(t, result.Watchable)
+		assert.True(t, result.Watchable,
+			"the API is served; the watcher must catch the object's creation")
 		assert.True(t, result.UsedFallback)
 		assert.Equal(t, configv1.TLSAdherencePolicyNoOpinion, result.AdherencePolicy)
 		assert.Equal(t, intermediate.MinTLSVersion, result.Spec.MinTLSVersion)
