@@ -2,8 +2,11 @@ package tls
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"io"
 	"net"
+	"net/url"
 	"testing"
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -41,6 +44,21 @@ func TestIsTransientAPIError_TransportErrors(t *testing.T) {
 		{
 			name:      "nil error is not transient",
 			err:       nil,
+			transient: false,
+		},
+		{
+			name:      "unexpected EOF from incomplete response body is transient",
+			err:       io.ErrUnexpectedEOF,
+			transient: true,
+		},
+		{
+			name:      "certificate verification failure wrapped in url.Error is not transient",
+			err:       &url.Error{Op: "Get", URL: "https://api.example.com", Err: x509.UnknownAuthorityError{}},
+			transient: false,
+		},
+		{
+			name:      "tls record header error is not transient",
+			err:       &url.Error{Op: "Get", URL: "https://api.example.com", Err: errors.New("tls: bad record MAC")},
 			transient: false,
 		},
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -238,16 +239,22 @@ func isTransientAPIError(err error) bool {
 		k8serr.IsTooManyRequests(err) {
 		return true
 	}
-	// Transport-level errors (connection reset, EOF, DNS failures) are
-	// network conditions that can resolve on retry, not permanent failures.
-	// Treat them as transient so the fallback kicks in and the watcher
-	// self-heals instead of failing startup.
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	// Transport-level errors are network conditions that can resolve on
+	// retry, not permanent failures. Match only the retryable causes:
+	// connection-level failures (*net.OpError), DNS resolution errors
+	// (*net.DNSError), and incomplete response bodies (io.ErrUnexpectedEOF).
+	// Do NOT match the broad net.Error interface: *url.Error satisfies it
+	// and can wrap TLS certificate verification failures, which must fail
+	// closed.
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
 		return true
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
+		return true
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 	return false
