@@ -92,3 +92,25 @@ func TestIsTransientAPIError_CertificateErrorInOpError(t *testing.T) {
 		t.Errorf("connection reset wrapped in *net.OpError must be transient")
 	}
 }
+
+func TestIsTransientAPIError_TLSAlertsNotTransient(t *testing.T) {
+	t.Parallel()
+
+	// Go wraps fatal TLS alerts as *net.OpError with Op "remote error"
+	// or "local error". These must NOT be transient.
+	remoteAlert := &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")}
+	if isTransientAPIError(remoteAlert) {
+		t.Errorf("remote TLS alert (bad certificate) must not be transient")
+	}
+
+	localAlert := &net.OpError{Op: "local error", Err: errors.New("tls: certificate required")}
+	if isTransientAPIError(localAlert) {
+		t.Errorf("local TLS alert (certificate required) must not be transient")
+	}
+
+	// Plain connection errors remain transient.
+	dialErr := &net.OpError{Op: "dial", Err: errors.New("connection refused")}
+	if !isTransientAPIError(dialErr) {
+		t.Errorf("connection refused must be transient")
+	}
+}
