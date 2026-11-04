@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 
 	configv1 "github.com/openshift/api/config/v1"
 	commonTLS "github.com/openshift/controller-runtime-common/pkg/tls"
@@ -230,9 +231,24 @@ func strictProfileFromAPIServer(
 }
 
 func isTransientAPIError(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) ||
+	if errors.Is(err, context.DeadlineExceeded) ||
 		k8serr.IsServiceUnavailable(err) ||
 		k8serr.IsTimeout(err) ||
 		k8serr.IsServerTimeout(err) ||
-		k8serr.IsTooManyRequests(err)
+		k8serr.IsTooManyRequests(err) {
+		return true
+	}
+	// Transport-level errors (connection reset, EOF, DNS failures) are
+	// network conditions that can resolve on retry, not permanent failures.
+	// Treat them as transient so the fallback kicks in and the watcher
+	// self-heals instead of failing startup.
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	return false
 }
