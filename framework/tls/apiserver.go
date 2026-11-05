@@ -2,8 +2,11 @@ package tls
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 
 	configv1 "github.com/openshift/api/config/v1"
 	commonTLS "github.com/openshift/controller-runtime-common/pkg/tls"
@@ -230,9 +233,57 @@ func strictProfileFromAPIServer(
 }
 
 func isTransientAPIError(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) ||
+	if errors.Is(err, context.DeadlineExceeded) ||
 		k8serr.IsServiceUnavailable(err) ||
 		k8serr.IsTimeout(err) ||
 		k8serr.IsServerTimeout(err) ||
-		k8serr.IsTooManyRequests(err)
+		k8serr.IsTooManyRequests(err) {
+		return true
+	}
+	// Transport-level errors are network conditions that can resolve on
+	// retry, not permanent failures. Match only the retryable causes:
+	// connection-level failures (*net.OpError), DNS resolution errors
+	// (*net.DNSError), and incomplete response bodies (io.ErrUnexpectedEOF).
+	// Do NOT match the broad net.Error interface: *url.Error satisfies it
+	// and can wrap TLS certificate verification failures, which must fail
+	// closed. *net.OpError can also wrap certificate failures when an
+	// HTTPS proxy presents an untrusted certificate, so exclude those
+	// before matching the retryable connection-level causes.
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return false
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		switch opErr.Op {
+		case "dial", "read", "write":
+			return true
+		case "proxyconnect":
+			// A proxyconnect wrapping a nested dial/read/write error
+			// means the proxy itself is unreachable — transient. A
+			// proxyconnect wrapping a TLS error means the proxy
+			// handshake failed — not transient.
+			var nested *net.OpError
+			if errors.As(opErr.Err, &nested) {
+				switch nested.Op {
+				case "dial", "read", "write":
+					return true
+				}
+			}
+			return false
+		default:
+			// "remote error", "local error", and other Op values can
+			// wrap TLS alerts and certificate failures; those are
+			// protocol-level failures that must fail closed.
+			return false
+		}
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return true
+	}
+	return false
 }
