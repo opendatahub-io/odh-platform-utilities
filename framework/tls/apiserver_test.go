@@ -2,7 +2,11 @@ package tls_test
 
 import (
 	"context"
+	cryptotls "crypto/tls"
+	"crypto/x509"
 	"errors"
+	"io"
+	"net"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -331,5 +335,109 @@ func TestLoad(t *testing.T) { //nolint:funlen // Fallback-policy cases for manag
 		_, err := pkgtls.Load(ctx, cli)
 		require.Error(t, err)
 		assert.True(t, k8serr.IsForbidden(err))
+	})
+}
+
+// TestLoadWithTransportErrors verifies that transport-level errors (connection
+// reset, DNS failure, unexpected EOF) produce the Intermediate fallback with
+// Watchable=true, while certificate verification errors fail closed.
+func TestLoadWithTransportErrors(t *testing.T) {
+	t.Parallel()
+
+	scheme := newTLSScheme(t)
+	ctx := context.Background()
+
+	t.Run("connection reset falls back to intermediate with watcher", func(t *testing.T) {
+		t.Parallel()
+
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: &net.OpError{Op: "read", Err: errors.New("connection reset by peer")},
+		}
+
+		result, err := pkgtls.Load(ctx, cli)
+		require.NoError(t, err)
+		assert.True(t, result.UsedFallback)
+		assert.True(t, result.Watchable, "connection reset must remain watchable for self-heal")
+		assert.Equal(t, configv1.VersionTLS12, result.Spec.MinTLSVersion)
+	})
+
+	t.Run("DNS failure falls back to intermediate with watcher", func(t *testing.T) {
+		t.Parallel()
+
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: &net.DNSError{Err: "no such host", Name: "api.example.com"},
+		}
+
+		result, err := pkgtls.Load(ctx, cli)
+		require.NoError(t, err)
+		assert.True(t, result.UsedFallback)
+		assert.True(t, result.Watchable, "DNS failure must remain watchable for self-heal")
+	})
+
+	t.Run("unexpected EOF falls back to intermediate with watcher", func(t *testing.T) {
+		t.Parallel()
+
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: io.ErrUnexpectedEOF,
+		}
+
+		result, err := pkgtls.Load(ctx, cli)
+		require.NoError(t, err)
+		assert.True(t, result.UsedFallback)
+		assert.True(t, result.Watchable, "unexpected EOF must remain watchable for self-heal")
+	})
+
+	t.Run("certificate verification failure fails closed", func(t *testing.T) {
+		t.Parallel()
+
+		certErr := cryptotls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: &net.OpError{Op: "remote error", Err: &certErr},
+		}
+
+		_, err := pkgtls.Load(ctx, cli)
+		require.Error(t, err, "certificate verification failure must fail closed")
+	})
+
+	t.Run("TLS alert fails closed", func(t *testing.T) {
+		t.Parallel()
+
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: &net.OpError{Op: "remote error", Err: errors.New("tls: bad certificate")},
+		}
+
+		_, err := pkgtls.Load(ctx, cli)
+		require.Error(t, err, "TLS alert must fail closed")
+	})
+
+	t.Run("proxyconnect with nested dial falls back", func(t *testing.T) {
+		t.Parallel()
+
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: &net.OpError{Op: "proxyconnect", Err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}},
+		}
+
+		result, err := pkgtls.Load(ctx, cli)
+		require.NoError(t, err)
+		assert.True(t, result.UsedFallback)
+		assert.True(t, result.Watchable, "proxy unreachable must remain watchable for self-heal")
+	})
+
+	t.Run("proxyconnect with TLS error fails closed", func(t *testing.T) {
+		t.Parallel()
+
+		cli := &erroringClient{
+			Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			getErr: &net.OpError{Op: "proxyconnect", Err: errors.New("tls: first record does not look like a TLS handshake")},
+		}
+
+		_, err := pkgtls.Load(ctx, cli)
+		require.Error(t, err, "proxy TLS failure must fail closed")
 	})
 }
