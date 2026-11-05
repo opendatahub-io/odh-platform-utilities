@@ -255,14 +255,18 @@ func isTransientAPIError(err error) bool {
 	}
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
-		// Go wraps fatal TLS alerts ("bad certificate", "certificate
-		// required", etc.) as *net.OpError with Op set to "remote error"
-		// or "local error". These are protocol-level failures, not
-		// transient network conditions; they must fail closed.
-		if opErr.Op == "remote error" || opErr.Op == "local error" {
+		// Accept only known-transient operations: connection-level
+		// failures during dial, read, and write. Reject everything else
+		// ("remote error", "local error", "proxyconnect", etc.) because
+		// Go can wrap TLS alerts, certificate failures, and proxy
+		// handshake errors in *net.OpError with those Op values, and
+		// those are protocol-level failures that must fail closed.
+		switch opErr.Op {
+		case "dial", "read", "write":
+			return true
+		default:
 			return false
 		}
-		return true
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
