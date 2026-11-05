@@ -255,16 +255,26 @@ func isTransientAPIError(err error) bool {
 	}
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
-		// Accept only known-transient operations: connection-level
-		// failures during dial, read, and write. Reject everything else
-		// ("remote error", "local error", "proxyconnect", etc.) because
-		// Go can wrap TLS alerts, certificate failures, and proxy
-		// handshake errors in *net.OpError with those Op values, and
-		// those are protocol-level failures that must fail closed.
 		switch opErr.Op {
 		case "dial", "read", "write":
 			return true
+		case "proxyconnect":
+			// A proxyconnect wrapping a nested dial/read/write error
+			// means the proxy itself is unreachable — transient. A
+			// proxyconnect wrapping a TLS error means the proxy
+			// handshake failed — not transient.
+			var nested *net.OpError
+			if errors.As(opErr.Err, &nested) {
+				switch nested.Op {
+				case "dial", "read", "write":
+					return true
+				}
+			}
+			return false
 		default:
+			// "remote error", "local error", and other Op values can
+			// wrap TLS alerts and certificate failures; those are
+			// protocol-level failures that must fail closed.
 			return false
 		}
 	}

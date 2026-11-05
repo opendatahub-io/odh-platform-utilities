@@ -115,8 +115,14 @@ func TestIsTransientAPIError_TLSAlertsNotTransient(t *testing.T) {
 	}
 
 	// Proxy TLS failures are not transient.
-	proxyErr := &net.OpError{Op: "proxyconnect", Err: errors.New("tls: first record does not look like a TLS handshake")}
-	if isTransientAPIError(proxyErr) {
+	proxyTLSErr := &net.OpError{Op: "proxyconnect", Err: errors.New("tls: first record does not look like a TLS handshake")}
+	if isTransientAPIError(proxyTLSErr) {
 		t.Errorf("proxyconnect TLS failure must not be transient")
+	}
+
+	// Proxy unreachable (nested dial error) IS transient.
+	proxyDialErr := &net.OpError{Op: "proxyconnect", Err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}}
+	if !isTransientAPIError(proxyDialErr) {
+		t.Errorf("proxyconnect wrapping a nested dial error must be transient")
 	}
 }
