@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"errors"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -136,4 +137,84 @@ func mergeReplicas(source, target *unstructured.Unstructured) error {
 	}
 
 	return unstructured.SetNestedField(target.Object, sourceReplica, replicasPath...)
+}
+
+// preserveDeploymentUserFields fills the given fragment with the live
+// values of the Deployment user-tuned fields (spec.replicas and the
+// container resources), so an owner applying the fragment re-claims the
+// fields instead of deleting them: it may be their sole owner, because the
+// current owner's write omits them (see patchWriteOmitsUserFields).
+//
+// Skeletons are created only for the containers the desired state still
+// carries AND that exist live: a fragment naming a container the desired
+// state dropped would retain its stale entry, and a fragment naming one
+// the desired state adds would create a name-only entry (MergeDeployments
+// fills resources only from a live container with the same name), which
+// the API server rejects — the release would fail and the release-pending
+// owner would wedge. MergeDeployments fills each skeleton with the live
+// resources of the container with the same name, and the live replica
+// count into spec.replicas.
+//
+// The live container names are read here rather than through
+// deploymentContainerNames (which swallows read errors into a nil map)
+// because a failed read must fail loudly: a silently empty intersection
+// would degrade the fragment to identity-only and delete the user-tuned
+// values it exists to preserve.
+func preserveDeploymentUserFields(desired, live, fragment *unstructured.Unstructured) error {
+	containers, _, err := unstructured.NestedSlice(desired.Object, deploymentContainersPath...)
+	if err != nil {
+		return fmt.Errorf("failed to read the containers of %s/%s for the release body: %w",
+			desired.GetNamespace(), desired.GetName(), err)
+	}
+
+	liveContainers, _, err := unstructured.NestedSlice(live.Object, deploymentContainersPath...)
+	if err != nil {
+		return fmt.Errorf("failed to read the live containers of %s/%s for the release body: %w",
+			desired.GetNamespace(), desired.GetName(), err)
+	}
+
+	liveNames := make(map[string]struct{}, len(liveContainers))
+	for _, raw := range liveContainers {
+		if container, ok := raw.(map[string]any); ok {
+			if name, ok := container["name"].(string); ok {
+				liveNames[name] = struct{}{}
+			}
+		}
+	}
+
+	skeletons := make([]any, 0, len(containers))
+	for _, raw := range containers {
+		container, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		name, ok := container["name"].(string)
+		if !ok {
+			continue
+		}
+
+		// A container the desired state adds has no live counterpart:
+		// the previous owner never claimed it, so there is nothing to
+		// preserve and nothing to release.
+		if _, exists := liveNames[name]; !exists {
+			continue
+		}
+
+		skeletons = append(skeletons, map[string]any{"name": name})
+	}
+
+	if len(skeletons) > 0 {
+		if err := unstructured.SetNestedSlice(fragment.Object, skeletons, deploymentContainersPath...); err != nil {
+			return fmt.Errorf("failed to set the containers of the release body for %s/%s: %w",
+				desired.GetNamespace(), desired.GetName(), err)
+		}
+	}
+
+	if err := MergeDeployments(live, fragment); err != nil {
+		return fmt.Errorf("failed to merge the live Deployment values into the release body for %s/%s: %w",
+			desired.GetNamespace(), desired.GetName(), err)
+	}
+
+	return nil
 }
