@@ -12,10 +12,9 @@ import (
 	odhTypes "github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/resources"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -172,9 +171,9 @@ func (a *Action) migratePreviousFieldOwners(
 		return nil, err
 	}
 
-	owners := previousFieldOwnersFrom(managed, fieldOwner, a.previousFieldOwners)
+	previousOwners := previousFieldOwnersFrom(managed, fieldOwner, a.previousFieldOwners)
 
-	pending, handoff := partitionPreviousFieldOwners(owners, managed, fieldOwner)
+	pending, handoff := partitionPreviousFieldOwners(previousOwners, managed, fieldOwner)
 
 	if len(pending) > 0 && fromCache {
 		// The release-pending partition may come from a stale cached view
@@ -193,9 +192,9 @@ func (a *Action) migratePreviousFieldOwners(
 			// cached snapshot would otherwise be missed for this
 			// reconcile, and one that has since vanished would get a
 			// pointless handoff and release.
-			owners = previousFieldOwnersFrom(managed, fieldOwner, a.previousFieldOwners)
+			previousOwners = previousFieldOwnersFrom(managed, fieldOwner, a.previousFieldOwners)
 
-			pending, handoff = partitionPreviousFieldOwners(owners, managed, fieldOwner)
+			pending, handoff = partitionPreviousFieldOwners(previousOwners, managed, fieldOwner)
 		}
 	}
 
@@ -207,8 +206,8 @@ func (a *Action) migratePreviousFieldOwners(
 		// owner release-pending — whose pre-write release would delete
 		// the required fields the guardian does not co-own (see
 		// dropConvergedGuardians).
-		owners = a.dropConvergedGuardians(ctx, obj, managed, owners)
-		pending, handoff = partitionPreviousFieldOwners(owners, managed, fieldOwner)
+		previousOwners = a.dropConvergedGuardians(ctx, obj, managed, previousOwners)
+		pending, handoff = partitionPreviousFieldOwners(previousOwners, managed, fieldOwner)
 	}
 
 	if len(pending) > 0 {
@@ -346,7 +345,9 @@ func (a *Action) patchWriteOmitsUserFields(obj *unstructured.Unstructured, old *
 // inert — the defunct owner never applies again — and consistent with the
 // framework's SSA-mode value-preservation model, where the apply customizer
 // co-claims the user-tuned fields on every write. A user who solely owned
-// such a field recovers sole ownership with a single forced apply.
+// such a field recovers sole ownership with a single forced apply; until
+// then, an apply that omits the field is silently retained rather than
+// removed, since the defunct owner's claim keeps the value alive.
 //
 // The fragment carries the uid of the object being released, which turns
 // the apply into a precondition on its identity: server-side apply creates
@@ -362,9 +363,9 @@ func (a *Action) releasePreviousFieldOwners(
 	old *unstructured.Unstructured,
 	patchOmitsUserFields bool,
 	fieldOwner string,
-	owners []string,
+	previousOwners []string,
 ) error {
-	for _, owner := range owners {
+	for _, owner := range previousOwners {
 		release, err := a.releaseBody(obj, old, patchOmitsUserFields)
 		if err != nil {
 			return err
@@ -409,6 +410,9 @@ func (a *Action) releasePreviousFieldOwners(
 // and a desired body that introduces the managed-by annotation would flip
 // the answer, degrading the release to identity-only and deleting the
 // values the handoff just preserved.
+//
+// The Deployment-specific construction of the preserving fragment lives in
+// preserveDeploymentUserFields, alongside the other Deployment merge logic.
 func (a *Action) releaseBody(
 	obj *unstructured.Unstructured,
 	old *unstructured.Unstructured,
@@ -428,74 +432,8 @@ func (a *Action) releaseBody(
 		return release, nil
 	}
 
-	// Skeletons for the containers the desired state still carries AND
-	// that exist live: a fragment naming a container the desired state
-	// dropped would retain its stale entry, and a fragment naming one the
-	// desired state adds would create a name-only entry (MergeDeployments
-	// fills resources only from a live container with the same name),
-	// which the API server rejects — the release would fail and the
-	// release-pending owner would wedge. MergeDeployments fills each
-	// skeleton with the live resources of the container with the same
-	// name, and the live replica count into spec.replicas.
-	containers, _, err := unstructured.NestedSlice(obj.Object, deploymentContainersPath...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the containers of %s/%s for the release body: %w",
-			obj.GetNamespace(), obj.GetName(), err)
-	}
-
-	// The live container names are read here rather than through
-	// deploymentContainerNames (which swallows read errors into a nil
-	// map) because a failed read must fail the release-body construction
-	// loudly: a silently empty intersection would degrade the fragment to
-	// identity-only and delete the user-tuned values it exists to
-	// preserve.
-	liveContainers, _, err := unstructured.NestedSlice(old.Object, deploymentContainersPath...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the live containers of %s/%s for the release body: %w",
-			obj.GetNamespace(), obj.GetName(), err)
-	}
-
-	liveNames := make(map[string]struct{}, len(liveContainers))
-	for _, raw := range liveContainers {
-		if container, ok := raw.(map[string]any); ok {
-			if name, ok := container["name"].(string); ok {
-				liveNames[name] = struct{}{}
-			}
-		}
-	}
-
-	skeletons := make([]any, 0, len(containers))
-	for _, raw := range containers {
-		container, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		name, ok := container["name"].(string)
-		if !ok {
-			continue
-		}
-
-		// A container the desired state adds has no live counterpart:
-		// the previous owner never claimed it, so there is nothing to
-		// preserve and nothing to release.
-		if _, live := liveNames[name]; !live {
-			continue
-		}
-
-		skeletons = append(skeletons, map[string]any{"name": name})
-	}
-
-	if len(skeletons) > 0 {
-		if err := unstructured.SetNestedSlice(release.Object, skeletons, deploymentContainersPath...); err != nil {
-			return nil, fmt.Errorf("failed to set the containers of the release body for %s/%s: %w",
-				obj.GetNamespace(), obj.GetName(), err)
-		}
-	}
-
-	if err := MergeDeployments(old, release); err != nil {
-		return nil, fmt.Errorf("failed to merge the live Deployment values into the release body for %s/%s: %w",
-			obj.GetNamespace(), obj.GetName(), err)
+	if err := preserveDeploymentUserFields(obj, old, release); err != nil {
+		return nil, err
 	}
 
 	return release, nil
@@ -508,7 +446,7 @@ func (a *Action) releaseBody(
 // opendatahub-operator does); a stripped cache would hide the previous owner
 // and the migration would never fire. When the cached object carries no
 // managed fields, the object is therefore re-read directly from the API
-// server through the dynamic client, bypassing the cache. When no dynamic
+// server through the metadata client, bypassing the cache. When no metadata
 // client is available, the ownership state is unknowable and an error is
 // returned rather than treating the empty cached view as proof that no
 // previous owner exists.
@@ -536,11 +474,11 @@ func liveManagedFields(
 	if live == nil {
 		// The ownership state is unknowable: an empty cached view is not
 		// proof that no previous owner exists. Failing loudly surfaces the
-		// misconfiguration (a Controller without a dynamic client combined
+		// misconfiguration (a Controller without a metadata client combined
 		// with a cache that strips managed fields) instead of silently
 		// skipping the configured handoff and wedging the deployment.
 		return nil, false, fmt.Errorf(
-			"cannot determine whether %s/%s still carries a previous field owner: the cached object has no managed fields and no dynamic client is available to read the live object",
+			"cannot determine whether %s/%s still carries a previous field owner: the cached object has no managed fields and no metadata client is available to read the live object",
 			old.GetNamespace(), old.GetName())
 	}
 
@@ -548,19 +486,20 @@ func liveManagedFields(
 }
 
 // readLiveManagedFields reads the managed fields of the object directly
-// from the API server through the dynamic client, bypassing the informer
-// cache. It returns a nil slice only when no dynamic client is available; a
-// successful read always yields a non-nil slice, empty when the live object
-// carries no managed fields (Kubernetes permits clearing them, and an empty
-// live view is a valid answer — no owner holds anything — not an
-// unavailable one).
+// from the API server through the metadata client, bypassing the informer
+// cache and fetching only the object's metadata instead of the whole
+// resource. It returns a nil slice only when no metadata client is
+// available; a successful read always yields a non-nil slice, empty when
+// the live object carries no managed fields (Kubernetes permits clearing
+// them, and an empty live view is a valid answer — no owner holds
+// anything — not an unavailable one).
 func readLiveManagedFields(
 	ctx context.Context,
 	rr *odhTypes.ReconciliationRequest,
 	old *unstructured.Unstructured,
 ) ([]metav1.ManagedFieldsEntry, error) {
-	dyn := rr.Controller.GetDynamicClient()
-	if dyn == nil {
+	metaCli := rr.Controller.GetMetadataClient()
+	if metaCli == nil {
 		return nil, nil
 	}
 
@@ -572,9 +511,9 @@ func readLiveManagedFields(
 			gvk, old.GetNamespace(), old.GetName(), err)
 	}
 
-	var res dynamic.ResourceInterface = dyn.Resource(mapping.Resource)
-	if mapping.Scope.Name() == apimeta.RESTScopeNameNamespace {
-		res = dyn.Resource(mapping.Resource).Namespace(old.GetNamespace())
+	var res metadata.ResourceInterface = metaCli.Resource(mapping.Resource)
+	if old.GetNamespace() != "" {
+		res = metaCli.Resource(mapping.Resource).Namespace(old.GetNamespace())
 	}
 
 	live, err := res.Get(ctx, old.GetName(), metav1.GetOptions{})
@@ -583,7 +522,7 @@ func readLiveManagedFields(
 			old.GetNamespace(), old.GetName(), err)
 	}
 
-	managed := live.GetManagedFields()
+	managed := live.ManagedFields
 	if managed == nil {
 		managed = []metav1.ManagedFieldsEntry{}
 	}
@@ -598,7 +537,7 @@ func readLiveManagedFields(
 // that own no fields are never considered: none of them can strand
 // associative-list entries.
 func previousFieldOwnersFrom(managed []metav1.ManagedFieldsEntry, fieldOwner string, configured []string) []string {
-	var owners []string
+	var previousOwners []string
 
 	for _, entry := range managed {
 		if entry.Operation != metav1.ManagedFieldsOperationApply {
@@ -617,12 +556,12 @@ func previousFieldOwnersFrom(managed []metav1.ManagedFieldsEntry, fieldOwner str
 			continue
 		}
 
-		if slices.Contains(configured, entry.Manager) && !slices.Contains(owners, entry.Manager) {
-			owners = append(owners, entry.Manager)
+		if slices.Contains(configured, entry.Manager) && !slices.Contains(previousOwners, entry.Manager) {
+			previousOwners = append(previousOwners, entry.Manager)
 		}
 	}
 
-	return owners
+	return previousOwners
 }
 
 // ownsNoFields reports whether the managed-fields entry claims no fields.
@@ -650,18 +589,18 @@ func ownsNoFields(entry metav1.ManagedFieldsEntry) bool {
 // hand off. The safety of the pending partition depends on the view's
 // freshness, which is why migratePreviousFieldOwners re-partitions from a
 // live read when the first view came from the informer cache.
-func partitionPreviousFieldOwners(owners []string, managed []metav1.ManagedFieldsEntry, fieldOwner string) (pending, handoff []string) {
+func partitionPreviousFieldOwners(previousOwners []string, managed []metav1.ManagedFieldsEntry, fieldOwner string) (pending, handoff []string) {
 	// The managers whose claim-dropping this migration orchestrates: the
 	// current owner (its write follows and drops its own stale claims) and
 	// the other configured previous owners (released in the same pass).
-	orchestrated := make(map[string]struct{}, len(owners)+1)
+	orchestrated := make(map[string]struct{}, len(previousOwners)+1)
 	orchestrated[fieldOwner] = struct{}{}
 
-	for _, owner := range owners {
+	for _, owner := range previousOwners {
 		orchestrated[owner] = struct{}{}
 	}
 
-	for _, owner := range owners {
+	for _, owner := range previousOwners {
 		if releasePendingFrom(managed, owner, orchestrated) {
 			pending = append(pending, owner)
 		} else {
@@ -696,13 +635,13 @@ func (a *Action) dropConvergedGuardians(
 	ctx context.Context,
 	obj *unstructured.Unstructured,
 	managed []metav1.ManagedFieldsEntry,
-	owners []string,
+	previousOwners []string,
 ) []string {
 	desiredContainers := deploymentContainerNames(obj)
 
-	kept := make([]string, 0, len(owners))
+	kept := make([]string, 0, len(previousOwners))
 
-	for _, owner := range owners {
+	for _, owner := range previousOwners {
 		if convergedGuardianFieldset(applyFieldsetOf(managed, owner), desiredContainers) {
 			logf.FromContext(ctx).V(1).Info("previous field owner already holds only the preserved Deployment user fields; nothing to migrate",
 				"gvk", obj.GroupVersionKind(),

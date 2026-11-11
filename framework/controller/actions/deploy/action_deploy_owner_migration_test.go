@@ -27,7 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/metadata"
+	metadatafake "k8s.io/client-go/metadata/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -47,18 +48,19 @@ const (
 
 // stubController is a minimal odhTypes.Controller for the non-CRD deploy
 // path: nothing is owned and dynamic ownership is disabled, so the action
-// never sets owner references on the probe Deployment. The dynamic client is
-// only provided by tests that exercise the uncached managed-fields lookup.
+// never sets owner references on the probe Deployment. The metadata client
+// is only provided by tests that exercise the uncached managed-fields lookup.
 type stubController struct {
-	client        client.Client
-	dynamicClient dynamic.Interface
+	client         client.Client
+	metadataClient metadata.Interface
 }
 
 func (s *stubController) Owns(schema.GroupVersionKind) bool                           { return false }
 func (s *stubController) AddDynamicOwnedType(schema.GroupVersionKind)                 {}
 func (s *stubController) GetClient() client.Client                                    { return s.client }
 func (s *stubController) GetDiscoveryClient() discovery.DiscoveryInterface            { return nil }
-func (s *stubController) GetDynamicClient() dynamic.Interface                         { return s.dynamicClient }
+func (s *stubController) GetDynamicClient() dynamic.Interface                         { return nil }
+func (s *stubController) GetMetadataClient() metadata.Interface                       { return s.metadataClient }
 func (s *stubController) IsDynamicOwnershipEnabled() bool                             { return false }
 func (s *stubController) IsExcludedFromDynamicOwnership(schema.GroupVersionKind) bool { return false }
 
@@ -107,7 +109,7 @@ func probeDeployment(metricsPort int64) unstructured.Unstructured {
 }
 
 // ownerMigrationEnv bundles the fake cluster used by the owner-migration
-// tests: the (cached) controller client, an optional dynamic client serving
+// tests: the (cached) controller client, an optional metadata client serving
 // as the uncached view of the API server, and whether the cache strips
 // managedFields from the objects it returns (as the opendatahub-operator's
 // cache TransformFunc does). deleteAfterCurrentApply models another actor
@@ -119,7 +121,7 @@ func probeDeployment(metricsPort int64) unstructured.Unstructured {
 // container ports with the same name.
 type ownerMigrationEnv struct {
 	cli                     client.Client
-	dynamicCli              dynamic.Interface
+	metadataCli             metadata.Interface
 	stripCache              bool
 	deleteAfterCurrentApply bool
 	events                  []string
@@ -195,6 +197,32 @@ func newOwnerMigrationEnv(t *testing.T, appliedOwners *[]string, stripCache bool
 		Build()
 
 	return env
+}
+
+// newMetadataFake serves the given objects as the metadata-only view of the
+// API server. Hand-set managed fields cannot be pushed through the
+// controller fake client (its tracker recomputes them on every write), so
+// tests that need a specific server-side ownership state seed it here; the
+// metadata fake preserves the entries as given, and the migration reads
+// only the object's metadata anyway.
+func newMetadataFake(t *testing.T, objs ...*unstructured.Unstructured) metadata.Interface {
+	t.Helper()
+
+	metas := make([]runtime.Object, 0, len(objs))
+	for _, obj := range objs {
+		live := &metav1.PartialObjectMetadata{}
+		live.SetGroupVersionKind(obj.GroupVersionKind())
+		live.SetName(obj.GetName())
+		live.SetNamespace(obj.GetNamespace())
+		live.SetUID(obj.GetUID())
+		live.ManagedFields = obj.GetManagedFields()
+		metas = append(metas, live)
+	}
+
+	s := metadatafake.NewTestScheme()
+	require.NoError(t, metav1.AddMetaToScheme(s))
+
+	return metadatafake.NewSimpleMetadataClient(s, metas...)
 }
 
 // isReleaseApply reports whether the apply configuration is a release of
@@ -707,7 +735,7 @@ func runOwnerMigrationDeploy(t *testing.T, env *ownerMigrationEnv, dep unstructu
 
 	rr := &odhTypes.ReconciliationRequest{
 		Client:     env.cli,
-		Controller: &stubController{client: env.cli, dynamicClient: env.dynamicCli},
+		Controller: &stubController{client: env.cli, metadataClient: env.metadataCli},
 		Instance:   instance,
 		Resources:  []unstructured.Unstructured{dep},
 	}
@@ -957,7 +985,7 @@ func TestDeployPreviousFieldOwnerMigrationConverged(t *testing.T) {
 // via a cache TransformFunc, as the opendatahub-operator configures to
 // reduce memory usage): the cached object cannot reveal the previous owner,
 // so the migration must read the live managed fields from the API server
-// through the dynamic client instead of the cache.
+// through the metadata client instead of the cache.
 func TestDeployPreviousFieldOwnerMigrationStrippedCache(t *testing.T) {
 	t.Parallel()
 
@@ -981,13 +1009,7 @@ func TestDeployPreviousFieldOwnerMigrationStrippedCache(t *testing.T) {
 		FieldsV1:  &metav1.FieldsV1{Raw: []byte(`{"f:spec":{"f:template":{"f:spec":{"f:containers":{}}}}}`)},
 		Time:      &metav1.Time{},
 	}})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		live.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, live.DeepCopy())
 
 	applied = nil // the seeding apply is not part of the action under test
 
@@ -1005,16 +1027,16 @@ func TestDeployPreviousFieldOwnerMigrationStrippedCache(t *testing.T) {
 	assert.ElementsMatch(t, []string{"metrics:8443", "health:8081"}, ownerMigrationPorts(t, stored))
 }
 
-// TestDeployPreviousFieldOwnerMigrationNoDynamicClient covers the case where
-// the cache strips managedFields and the Controller provides no dynamic
+// TestDeployPreviousFieldOwnerMigrationNoMetadataClient covers the case where
+// the cache strips managedFields and the Controller provides no metadata
 // client: the ownership state is unknowable, so the action must fail loudly
 // instead of treating the empty cached view as proof that no previous owner
 // exists and silently skipping the configured handoff.
-func TestDeployPreviousFieldOwnerMigrationNoDynamicClient(t *testing.T) {
+func TestDeployPreviousFieldOwnerMigrationNoMetadataClient(t *testing.T) {
 	t.Parallel()
 
 	var applied []string
-	env := newOwnerMigrationEnv(t, &applied, true) // stripped cache, no dynamic client
+	env := newOwnerMigrationEnv(t, &applied, true) // stripped cache, no metadata client
 
 	seed := probeDeployment(8080)
 	require.NoError(t, resources.Apply(t.Context(), env.cli, &seed, client.ForceOwnership, client.FieldOwner(legacyProbeOwner)))
@@ -1029,7 +1051,7 @@ func TestDeployPreviousFieldOwnerMigrationNoDynamicClient(t *testing.T) {
 
 	_, err := runOwnerMigrationDeploy(t, env, probeDeployment(8443), opts...)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "no dynamic client is available")
+	require.ErrorContains(t, err, "no metadata client is available")
 	assert.Empty(t, applied, "no applies must be issued when the ownership state is unknowable")
 }
 
@@ -1050,7 +1072,7 @@ func TestDeployPreviousFieldOwnerMigrationEmptyFieldsetEntry(t *testing.T) {
 	// Apply entry that owns no fields, the way a server that retains
 	// emptied entries would. (Hand-set managed fields cannot be pushed
 	// through the controller fake client: its tracker recomputes them on
-	// every write. The dynamic fake preserves them as given.)
+	// every write. The metadata fake preserves them as given.)
 	live := probeDeployment(8080)
 	live.SetGroupVersionKind(gvk.Deployment)
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{{
@@ -1058,13 +1080,7 @@ func TestDeployPreviousFieldOwnerMigrationEmptyFieldsetEntry(t *testing.T) {
 		Operation: metav1.ManagedFieldsOperationApply,
 		FieldsV1:  &metav1.FieldsV1{Raw: []byte(`{}`)},
 	}})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		live.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, live.DeepCopy())
 
 	applied = nil // the seeding apply is not part of the action under test
 
@@ -1256,7 +1272,7 @@ func TestDeployPreviousFieldOwnerMigrationMultipleOwners(t *testing.T) {
 	// stray one, which owns only a label, and the legacy one, which owns the
 	// stale metrics port. (Hand-set managed fields cannot be pushed through
 	// the controller fake client: its tracker recomputes them on every
-	// write. The dynamic fake preserves them as given. The stray owner comes
+	// write. The metadata fake preserves them as given. The stray owner comes
 	// first so its handoff runs first.)
 	live := probeDeployment(8080)
 	live.SetGroupVersionKind(gvk.Deployment)
@@ -1268,13 +1284,7 @@ func TestDeployPreviousFieldOwnerMigrationMultipleOwners(t *testing.T) {
 		}),
 		applyEntryFor(legacyProbeOwner, probeDeploymentFieldset(8080)),
 	})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		live.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, live.DeepCopy())
 
 	// The API server rejects the stray owner's handoff: its apply of the
 	// desired body would merge metrics:8443 next to the metrics:8080 still
@@ -1482,7 +1492,7 @@ func TestDeployPreviousFieldOwnerMigrationManagedByIntroduced(t *testing.T) {
 // wedge the object on the duplicate port name. The previous owner must be
 // released first instead — safely, because the current owner co-owns every
 // field it claims. This test also covers the degradation of the freshness
-// guard: the cached view drives the partition and no dynamic client exists
+// guard: the cached view drives the partition and no metadata client exists
 // to refresh it, so the cached partition is used as the best available view.
 func TestDeployPreviousFieldOwnerMigrationReleasePendingRecovery(t *testing.T) {
 	t.Parallel()
@@ -1545,20 +1555,14 @@ func TestDeployPreviousFieldOwnerMigrationPendingFromLiveRead(t *testing.T) {
 
 	// The live (API server) view: only the previous owner's entry. (Hand-
 	// set managed fields cannot be pushed through the controller fake
-	// client: its tracker recomputes them on every write. The dynamic
+	// client: its tracker recomputes them on every write. The metadata
 	// fake preserves them as given.)
 	fresh := probeDeployment(8443)
 	fresh.SetGroupVersionKind(gvk.Deployment)
 	fresh.SetManagedFields([]metav1.ManagedFieldsEntry{
 		applyEntryFor(legacyProbeOwner, probeDeploymentFieldset(8443)),
 	})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		fresh.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, fresh.DeepCopy())
 
 	applied = nil // the seeding applies are not part of the action under test
 	env.events = nil
@@ -1612,20 +1616,14 @@ func TestDeployPreviousFieldOwnerMigrationOwnersFromFreshView(t *testing.T) {
 	// the first owner's entry is gone (e.g. its release completed) and the
 	// second owner applied since the cached snapshot. (Hand-set managed
 	// fields cannot be pushed through the controller fake client: its
-	// tracker recomputes them on every write. The dynamic fake preserves
+	// tracker recomputes them on every write. The metadata fake preserves
 	// them as given.)
 	fresh := probeDeployment(8443)
 	fresh.SetGroupVersionKind(gvk.Deployment)
 	fresh.SetManagedFields([]metav1.ManagedFieldsEntry{
 		applyEntryFor(strayLegacyProbeOwner, probeDeploymentFieldset(8443)),
 	})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		fresh.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, fresh.DeepCopy())
 
 	applied = nil // the seeding applies are not part of the action under test
 	env.events = nil
@@ -1688,7 +1686,7 @@ func guardianProbeFieldset(extra map[string]any) map[string]any {
 // patch-mode steady state after a preserving release: the previous owner's
 // entry survives on a real API server with its claims reduced to the
 // Deployment user-tuned fields (the fake cannot represent that reduced
-// entry, so it is seeded through the dynamic fake, which is also what the
+// entry, so it is seeded through the metadata fake, which is also what the
 // migration reads with a stripped cache). Such a converged guardian is the
 // owner of record for those fields and must not be migrated again — the
 // handoff would expand its claims back to the whole body and the release
@@ -1738,7 +1736,7 @@ func TestDeployPreviousFieldOwnerMigrationPatchGuardianConverged(t *testing.T) {
 			// stale label), and the current owner holding the stripped
 			// patch body's claims. (Hand-set managed fields cannot be
 			// pushed through the controller fake client: its tracker
-			// recomputes them on every write. The dynamic fake preserves
+			// recomputes them on every write. The metadata fake preserves
 			// them as given.)
 			fresh := probeDeployment(8443)
 			fresh.SetGroupVersionKind(gvk.Deployment)
@@ -1746,13 +1744,7 @@ func TestDeployPreviousFieldOwnerMigrationPatchGuardianConverged(t *testing.T) {
 				applyEntryFor(legacyProbeOwner, guardianProbeFieldset(test.legacyExtra)),
 				applyEntryFor(currentProbeOwner, probeDeploymentFieldset(8443)),
 			})
-			env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-				runtime.NewScheme(),
-				map[schema.GroupVersionResource]string{
-					{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-				},
-				fresh.DeepCopy(),
-			)
+			env.metadataCli = newMetadataFake(t, fresh.DeepCopy())
 
 			applied = nil // the seeding apply is not part of the action under test
 			env.events = nil
@@ -1832,7 +1824,7 @@ func TestDeployPreviousFieldOwnerMigrationGuardianSharing(t *testing.T) {
 	// the converged guardian's reduced claims from the first migration,
 	// and no entry for the new current owner yet. (Hand-set managed
 	// fields cannot be pushed through the controller fake client: its
-	// tracker recomputes them on every write. The dynamic fake preserves
+	// tracker recomputes them on every write. The metadata fake preserves
 	// them as given.)
 	live := probeDeployment(8080)
 	setProbeReplicasAndResources(t, &live, 3, "500m")
@@ -1841,13 +1833,7 @@ func TestDeployPreviousFieldOwnerMigrationGuardianSharing(t *testing.T) {
 		applyEntryFor(legacyProbeOwner, probeDeploymentFieldset(8080)),
 		applyEntryFor(strayLegacyProbeOwner, guardianProbeFieldset(nil)),
 	})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		live.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, live.DeepCopy())
 
 	applied = nil // the seeding apply is not part of the action under test
 	env.events = nil
@@ -2165,7 +2151,7 @@ func TestDeployPreviousFieldOwnerMigrationUnrelatedManager(t *testing.T) {
 	// user manager that owns part of the container entry (its resources),
 	// sharing the container's associative-list key. (Hand-set managed
 	// fields cannot be pushed through the controller fake client: its
-	// tracker recomputes them on every write. The dynamic fake preserves
+	// tracker recomputes them on every write. The metadata fake preserves
 	// them as given.)
 	live := probeDeployment(8080)
 	live.SetGroupVersionKind(gvk.Deployment)
@@ -2185,13 +2171,7 @@ func TestDeployPreviousFieldOwnerMigrationUnrelatedManager(t *testing.T) {
 			},
 		}),
 	})
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		live.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, live.DeepCopy())
 
 	applied = nil // the seeding apply is not part of the action under test
 	env.events = nil
@@ -2221,9 +2201,9 @@ func TestDeployPreviousFieldOwnerMigrationUnrelatedManager(t *testing.T) {
 
 // TestDeployPreviousFieldOwnerMigrationEmptyLiveRead covers a live object
 // whose managed fields were cleared entirely (Kubernetes permits it): a
-// successful dynamic read with no entries is a valid empty view — no
+// successful metadata read with no entries is a valid empty view — no
 // manager owns anything, so there is nothing to migrate — and must not be
-// mistaken for an unavailable dynamic client, which would fail the deploy
+// mistaken for an unavailable metadata client, which would fail the deploy
 // on every reconcile. The deployment proceeds to the current owner's
 // write.
 func TestDeployPreviousFieldOwnerMigrationEmptyLiveRead(t *testing.T) {
@@ -2236,19 +2216,13 @@ func TestDeployPreviousFieldOwnerMigrationEmptyLiveRead(t *testing.T) {
 	// previous owner; the live (API server) view carries no managed fields
 	// at all. (Hand-set managed fields cannot be pushed through the
 	// controller fake client: its tracker recomputes them on every write.
-	// The dynamic fake preserves them as given — here, their absence.)
+	// The metadata fake preserves them as given — here, their absence.)
 	seed := probeDeployment(8443)
 	require.NoError(t, resources.Apply(t.Context(), env.cli, &seed, client.ForceOwnership, client.FieldOwner(legacyProbeOwner)))
 
 	live := probeDeployment(8443)
 	live.SetGroupVersionKind(gvk.Deployment)
-	env.dynamicCli = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: "apps", Version: "v1", Resource: "deployments"}: "DeploymentList",
-		},
-		live.DeepCopy(),
-	)
+	env.metadataCli = newMetadataFake(t, live.DeepCopy())
 
 	applied = nil // the seeding apply is not part of the action under test
 	env.events = nil
