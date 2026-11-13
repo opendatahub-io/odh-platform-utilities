@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -182,6 +183,7 @@ type Reconciler struct {
 	Client          client.Client
 	discoveryClient discovery.DiscoveryInterface
 	dynamicClient   dynamic.Interface
+	metadataClient  metadata.Interface
 
 	Scheme            *runtime.Scheme
 	Actions           []actions.Fn
@@ -265,6 +267,10 @@ func NewReconciler[T api.PlatformObject](
 	if err != nil {
 		return nil, fmt.Errorf("unable to construct a Dynamic client: %w", err)
 	}
+	metadataCli, err := metadata.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return nil, fmt.Errorf("unable to construct a Metadata client: %w", err)
+	}
 
 	// Ensure cache coherence: if the manager's client is not already
 	// the unstructured-wrapping client, wrap it so all Get/List go
@@ -281,6 +287,7 @@ func NewReconciler[T api.PlatformObject](
 	cc.ManifestsBasePath = getManifestsBasePath(mgr)
 	cc.ChartsBasePath = getChartsBasePath(mgr)
 	cc.dynamicClient = dynamicCli
+	cc.metadataClient = metadataCli
 	cc.discoveryClient = discoveryCli
 
 	return &cc, nil
@@ -304,6 +311,10 @@ func (r *Reconciler) GetDiscoveryClient() discovery.DiscoveryInterface {
 
 func (r *Reconciler) GetDynamicClient() dynamic.Interface {
 	return r.dynamicClient
+}
+
+func (r *Reconciler) GetMetadataClient() metadata.Interface {
+	return r.metadataClient
 }
 
 func (r *Reconciler) AddOwnedType(gvk schema.GroupVersionKind) {
