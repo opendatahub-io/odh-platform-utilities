@@ -34,6 +34,15 @@ Once the API is considered stable:
 - The module path will include the major version for v2+:
   `github.com/opendatahub-io/odh-platform-utilities/v2`
 
+## Release Scope
+
+The root product module includes packages under `api/`, `pkg/`, `framework/`,
+and `testing/`. All product packages are versioned together with root `v*`
+tags. Do not create nested `framework/v*` or `testing/v*` tags.
+
+The standalone `flakiness/` and `examples/` modules are tooling and are not
+published as product-module releases by the root release workflow.
+
 ## Creating a Release
 
 1. Ensure `main` is in a releasable state (CI green, docs updated).

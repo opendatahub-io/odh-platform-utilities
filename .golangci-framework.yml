@@ -1,0 +1,63 @@
+version: "2"
+
+linters:
+  default: all
+  enable:
+    - gomodguard_v2
+  disable:
+    - cyclop
+    - depguard
+    - err113
+    - exhaustruct
+    - funcorder
+    - funlen
+    - gochecknoglobals
+    - gocognit
+    - goconst
+    - gomodguard
+    - godoclint
+    - godox
+    - gomoddirectives
+    - govet
+    - ireturn
+    - lll
+    - mnd
+    - nestif
+    - nilnil
+    - nlreturn
+    - noinlineerr
+    - nonamedreturns
+    - paralleltest
+    - staticcheck
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    importas:
+      no-unaliased: true
+    revive:
+      rules:
+        - name: unexported-return
+          disabled: true
+
+  exclusions:
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - goconst
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

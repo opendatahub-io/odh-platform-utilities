@@ -5,12 +5,49 @@ COVERAGE_FILE ?= cover.out
 GOLANGCI_LINT = go run "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"
 CONTROLLER_GEN = go run "sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)"
 
+ROOT_LINT_PACKAGES := \
+	. \
+	./api/... \
+	./pkg/cache/... \
+	./pkg/cluster \
+	./pkg/cluster/olm/... \
+	./pkg/cluster/openshift/... \
+	./pkg/controller/action/... \
+	./pkg/controller/conditions/... \
+	./pkg/controller/gc/... \
+	./pkg/controller/precondition/... \
+	./pkg/deploy/... \
+	./pkg/metadata/annotations/... \
+	./pkg/metadata/labels/... \
+	./pkg/metrics/... \
+	./pkg/render/... \
+	./pkg/resources/... \
+	./pkg/status/... \
+	./pkg/template/...
+
+FRAMEWORK_LINT_PACKAGES := \
+	./framework/... \
+	./testing/... \
+	./pkg/client/... \
+	./pkg/cluster/gvk/... \
+	./pkg/controller/actions/... \
+	./pkg/controller/handlers/... \
+	./pkg/controller/predicates/... \
+	./pkg/controller/reconciler/... \
+	./pkg/controller/types/... \
+	./pkg/ingressassignment/... \
+	./pkg/manager/... \
+	./pkg/metadata \
+	./pkg/rules/... \
+	./pkg/testing/... \
+	./pkg/tls/... \
+	./pkg/webhook/...
+
 # Pin the toolchain to the exact Go version declared in go.mod so that
 # the race-instrumented stdlib is compiled with the same compiler version
-# used for user code.  Without this, `go test -race` may fail when the
-# locally installed Go (e.g. 1.25.5) differs from the go.mod directive
-# (e.g. 1.25.7) because the downloaded toolchain cannot reuse the race
-# stdlib compiled by the local install.
+# used for user code. Without this, `go test -race` may fail when the
+# locally installed Go differs from the go.mod directive because the downloaded
+# toolchain cannot reuse the race stdlib compiled by the local install.
 GO_MOD_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 export GOTOOLCHAIN := go$(GO_MOD_VERSION)
 
@@ -34,12 +71,14 @@ vet: ## Run go vet.
 	go vet ./...
 
 .PHONY: lint
-lint: ## Run golangci-lint.
-	$(GOLANGCI_LINT) run
+lint: ## Run golangci-lint with the root and framework compatibility profiles.
+	$(GOLANGCI_LINT) run $(ROOT_LINT_PACKAGES)
+	$(GOLANGCI_LINT) run --config .golangci-framework.yml $(FRAMEWORK_LINT_PACKAGES)
 
 .PHONY: lint-fix
-lint-fix: ## Run golangci-lint with --fix.
-	$(GOLANGCI_LINT) run --fix
+lint-fix: ## Run golangci-lint with --fix using both lint profiles.
+	$(GOLANGCI_LINT) run --fix $(ROOT_LINT_PACKAGES)
+	$(GOLANGCI_LINT) run --fix --config .golangci-framework.yml $(FRAMEWORK_LINT_PACKAGES)
 
 .PHONY: test
 test: ## Run tests with race detector and coverage.
@@ -62,56 +101,41 @@ verify-fmt: ## Verify code is formatted.
 verify-generate: generate ## Verify generated files are up to date.
 	@git diff --quiet --exit-code api/ || (echo "Generated files are out of date. Run 'make generate' and commit." && git diff --stat api/ && exit 1)
 
-##@ All Modules
+##@ Product and Tooling
 
 .PHONY: all-modules
-all-modules: all ## Run all checks across root, framework, framework/testing, and flakiness modules.
-	$(MAKE) -C framework all
-	$(MAKE) -C framework/testing all
+all-modules: all ## Run all checks for the product module and flakiness tool module.
 	$(MAKE) -C flakiness all
 
 .PHONY: generate-all
-generate-all: generate ## Regenerate DeepCopy methods across all modules.
-	$(MAKE) -C framework generate
+generate-all: generate ## Regenerate product-module DeepCopy methods.
 
 .PHONY: test-all
-test-all: test ## Run tests across all modules.
-	$(MAKE) -C framework test
-	$(MAKE) -C framework/testing test
+test-all: test ## Run tests for the product module and flakiness tool module.
 	$(MAKE) -C flakiness test
 
 .PHONY: lint-all
-lint-all: lint ## Run golangci-lint across all modules.
-	$(MAKE) -C framework lint
-	$(MAKE) -C framework/testing lint
+lint-all: lint ## Run golangci-lint for the product module and flakiness tool module.
 	$(MAKE) -C flakiness lint
 
 .PHONY: lint-fix-all
-lint-fix-all: lint-fix ## Run golangci-lint with --fix across all modules.
-	$(MAKE) -C framework lint-fix
-	$(MAKE) -C framework/testing lint-fix
+lint-fix-all: lint-fix ## Run golangci-lint with --fix for the product and flakiness tool modules.
 	$(MAKE) -C flakiness lint-fix
 
 .PHONY: tidy-all
-tidy-all: tidy ## Run go mod tidy across all modules.
-	$(MAKE) -C framework tidy
-	$(MAKE) -C framework/testing tidy
+tidy-all: tidy ## Run go mod tidy for the product module and flakiness tool module.
 	$(MAKE) -C flakiness tidy
 
 .PHONY: verify-fmt-all
-verify-fmt-all: verify-fmt ## Verify code formatting across all modules.
-	$(MAKE) -C framework verify-fmt
+verify-fmt-all: verify-fmt ## Verify formatting for the product module and flakiness tool module.
 	$(MAKE) -C flakiness verify-fmt
 
 .PHONY: verify-tidy-all
-verify-tidy-all: verify-tidy ## Verify go.mod/go.sum are tidy across all modules.
-	$(MAKE) -C framework verify-tidy
-	$(MAKE) -C framework/testing verify-tidy
+verify-tidy-all: verify-tidy ## Verify product and flakiness tool module files are tidy.
 	$(MAKE) -C flakiness verify-tidy
 
 .PHONY: verify-generate-all
-verify-generate-all: verify-generate ## Verify generated files are up to date across all modules.
-	$(MAKE) -C framework verify-generate
+verify-generate-all: verify-generate ## Verify product-module generated files are up to date.
 
 ##@ Help
 

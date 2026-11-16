@@ -1,6 +1,6 @@
 # Integration Test Harness
 
-Module repos import [`framework/testing/integration`](../framework/testing/integration)
+Module repos import [`testing/integration`](../testing/integration)
 and call `Run` as a live-cluster PR gate: enable the module on a
 DataScienceCluster, wait until the module CR is `Ready=True` **and**
 `ProvisioningSucceeded=True`, wait until a named Deployment has
@@ -11,7 +11,7 @@ way your other e2e already does. This library does not install OLM. `Run`
 creates a DSC, asserts, and deletes that DSC. The operator stays.
 
 API, defaults, and skip behavior are documented in
-[`doc.go`](../framework/testing/integration/doc.go) and the GoDoc on `Run`
+[`doc.go`](../testing/integration/doc.go) and the GoDoc on `Run`
 and the `With*` options.
 
 ## PR gate
@@ -68,26 +68,21 @@ components.
 
 A namespaced workload CR (for example `MCPServer`) is not the module CR.
 
-## 1. Depend on the testing module
+## 1. Depend on the product module
 
-Nested module — not `…/framework`.
-
-Once a `framework/testing/vX.Y.Z` tag has been published (see
+`testing/integration` is a package in the root product module. Use the same
+root `vX.Y.Z` release as every other product package (see
 [VERSIONING.md](VERSIONING.md)):
 
 ```bash
-go get github.com/opendatahub-io/odh-platform-utilities/framework/testing@vX.Y.Z
+go get github.com/opendatahub-io/odh-platform-utilities@vX.Y.Z
 ```
 
-Until then, or for local development, point all three modules at a local
-checkout via `replace` in your `go.mod`:
+For local development, one `replace` points all product imports—including
+`testing/integration` and retained `framework/*` helpers—at the checkout:
 
-```
-replace (
-    github.com/opendatahub-io/odh-platform-utilities         => /path/to/odh-platform-utilities
-    github.com/opendatahub-io/odh-platform-utilities/framework => /path/to/odh-platform-utilities/framework
-    github.com/opendatahub-io/odh-platform-utilities/framework/testing => /path/to/odh-platform-utilities/framework/testing
-)
+```go
+replace github.com/opendatahub-io/odh-platform-utilities => /path/to/odh-platform-utilities
 ```
 
 ## 2. Add the test
@@ -110,7 +105,7 @@ import (
 
     "k8s.io/apimachinery/pkg/runtime/schema"
 
-    "github.com/opendatahub-io/odh-platform-utilities/framework/testing/integration"
+    "github.com/opendatahub-io/odh-platform-utilities/testing/integration"
 )
 
 // Full scenario: DSC-registered module component.

@@ -10,8 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster/gvk"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/resources"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/gvk"
 
 	. "github.com/onsi/gomega"
 )

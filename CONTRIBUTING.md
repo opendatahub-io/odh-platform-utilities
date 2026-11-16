@@ -5,7 +5,7 @@ and instructions for contributing to this project.
 
 ## Prerequisites
 
-- **Go 1.25+** — match the version in `go.mod`
+- **Go 1.26.0** — match the version in the root `go.mod`
 - **golangci-lint v2.5.0+** — installed automatically by `make lint` if missing
 - **pre-commit** — optional but recommended for local development
 
@@ -28,8 +28,10 @@ pre-commit install --hook-type pre-push
 make test
 ```
 
-This runs all tests with the race detector enabled and generates a coverage
-report at `cover.out`.
+This runs all product-module tests—including packages under `api/`, `pkg/`,
+`framework/`, and `testing/`—with the race detector enabled and generates a
+coverage report at `cover.out`. The standalone flakiness tool module is checked
+separately with `make -C flakiness test`.
 
 ### Running the Linter
 
@@ -47,7 +49,8 @@ make fmt
 ### Verifying Before Submitting
 
 ```bash
-make all        # runs fmt, vet, lint, and test
+make all          # product module: fmt, vet, lint, and test
+make all-modules  # product module plus the flakiness tool module
 ```
 
 ## Pull Request Process

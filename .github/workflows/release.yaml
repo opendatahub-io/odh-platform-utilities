@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*"
-      - "framework/v*"
-      - "framework/testing/v*"
 
 permissions:
   contents: write
@@ -19,31 +17,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Go for root module
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-
-      - name: Set up Go for framework module
-        if: startsWith(github.ref, 'refs/tags/framework/v')
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: framework/go.mod
-
-      - name: Set up Go for framework/testing module
-        if: startsWith(github.ref, 'refs/tags/framework/testing/v')
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: framework/testing/go.mod
 
       - name: Validate tag
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           case "$TAG" in
             v*) VERSION="${TAG#v}" ;;
-            framework/v*) VERSION="${TAG#framework/v}" ;;
-            framework/testing/v*) VERSION="${TAG#framework/testing/v}" ;;
             *)
               echo "Error: Unsupported release tag '$TAG'"
               exit 1
@@ -58,32 +41,18 @@ jobs:
             exit 1
           fi
 
-      - name: Run tests
-        run: |
-          case "${GITHUB_REF#refs/tags/}" in
-            v*) make test-all ;;
-            framework/v*) make -C framework test && make -C framework/testing test ;;
-            framework/testing/v*) make -C framework/testing test ;;
-            *)
-              echo "Error: Unsupported release tag '${GITHUB_REF#refs/tags/}'"
-              exit 1
-              ;;
-          esac
+      - name: Test product module
+        run: make test
 
-      - name: Generate module-scoped release notes
+      - name: Test flakiness tool module
+        run: make -C flakiness test
+
+      - name: Generate release notes
         id: release-notes
         run: bash .github/scripts/generate-release-notes.sh "${GITHUB_REF#refs/tags/}"
 
-      - name: Create root module GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           body_path: ${{ steps.release-notes.outputs.body_path }}
           make_latest: true
-
-      - name: Create nested module GitHub Release
-        if: startsWith(github.ref, 'refs/tags/framework/')
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
-        with:
-          body_path: ${{ steps.release-notes.outputs.body_path }}
-          make_latest: false

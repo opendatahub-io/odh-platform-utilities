@@ -5,7 +5,7 @@ opendatahub-operator's TLS settings. Each module is expected to configure TLS
 for **its own process** (webhooks, metrics) and for **operands it deploys**
 (kube-rbac-proxy, kube-auth-proxy, and similar).
 
-This library (`framework/tls`) supplies the shared resolution helpers. Wiring them
+This library (`pkg/tls`) supplies the shared resolution helpers. Wiring them
 into `main.go`, RBAC, and templates is the module's job.
 
 The package reuses `controller-runtime-common` for generic profile resolution,
@@ -106,7 +106,7 @@ import (
     metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
     ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-    pkgtls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
+    pkgtls "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
 )
 
 func setupTLS(ctx context.Context, restConfig *rest.Config, scheme *runtime.Scheme) (
@@ -274,7 +274,7 @@ cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
 ```
 
 Hardcode expected IANA cipher strings in tests rather than calling
-`CipherSuitesFromSpec` to produce the oracle. See `framework/tls` tests for the
+`CipherSuitesFromSpec` to produce the oracle. See `pkg/tls` tests for the
 Intermediate/Old fixtures.
 
 ## Out of scope for the module (today)
@@ -286,6 +286,6 @@ Intermediate/Old fixtures.
 
 ## See also
 
-- [framework/tls GoDoc](https://pkg.go.dev/github.com/opendatahub-io/odh-platform-utilities/framework/tls)
-- [framework/tls/AGENTS.md](../framework/tls/AGENTS.md) — fallback table and the OpenShift API exception
-- [Migration from the operator](./migration-from-operator.md#tls-frameworktls)
+- [pkg/tls GoDoc](https://pkg.go.dev/github.com/opendatahub-io/odh-platform-utilities/pkg/tls)
+- [pkg/tls/AGENTS.md](../pkg/tls/AGENTS.md) — fallback table and the OpenShift API exception
+- [Migration from the operator](./migration-from-operator.md#tls-pkgtls)

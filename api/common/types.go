@@ -1,6 +1,7 @@
 package common
 
 import (
+	"github.com/operator-framework/api/pkg/lib/version"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -47,6 +48,10 @@ const (
 	// ConditionSeverityInfo indicates a condition that is informational and
 	// does not require immediate action.
 	ConditionSeverityInfo ConditionSeverity = "Info"
+
+	// ConditionReasonError is the standard reason used when a condition
+	// represents an error.
+	ConditionReasonError = "Error"
 )
 
 // --- Condition Type Constants ---
@@ -186,6 +191,17 @@ func (s *Status) SetConditions(conditions []Condition) {
 }
 
 // --- Release Types ---
+
+// Platform identifies a platform release.
+type Platform string
+
+// Release includes information on operator version and platform.
+//
+// +kubebuilder:object:generate=true
+type Release struct {
+	Name    Platform                `json:"name,omitempty"`
+	Version version.OperatorVersion `json:"version,omitempty"`
+}
 
 // ComponentRelease describes a single software component's release metadata.
 //

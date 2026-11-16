@@ -14,7 +14,7 @@ controller that imports this shared library.
 | `github.com/opendatahub-io/opendatahub-operator/pkg/cluster` | `github.com/opendatahub-io/odh-platform-utilities/pkg/cluster` |
 | `github.com/opendatahub-io/opendatahub-operator/pkg/resources` | `github.com/opendatahub-io/odh-platform-utilities/pkg/resources` |
 | `github.com/opendatahub-io/opendatahub-operator/pkg/webhook` | `github.com/opendatahub-io/odh-platform-utilities/pkg/webhook` |
-| `github.com/opendatahub-io/opendatahub-operator/pkg/tls` | `github.com/opendatahub-io/odh-platform-utilities/framework/tls` |
+| `github.com/opendatahub-io/opendatahub-operator/pkg/tls` | `github.com/opendatahub-io/odh-platform-utilities/pkg/tls` |
 
 ## Type Mapping
 
@@ -186,11 +186,11 @@ should migrate from `k8serr.IsNotFound(err)` to
 
 ### Webhook Utilities
 
-| Operator Location | Shared Library Location |
-|-------------------|------------------------|
-| `pkg/webhook.ValidateSingletonCreation` | `pkg/webhook.ValidateSingletonCreation` |
-| `pkg/webhook.CountObjects` | `pkg/webhook.CountObjects` |
-| `pkg/webhook.DenyCountGtZero` | `pkg/webhook.DenyCountGtZero` |
+Singleton validation helpers and the admission webhook builder now share the
+single import `github.com/opendatahub-io/odh-platform-utilities/pkg/webhook`.
+Use `webhook.ValidateSingletonCreation`, `webhook.CountObjects`, and
+`webhook.DenyCountGtZero`; no second alias is needed for builder calls such as
+`webhook.For` or `webhook.Validating`.
 
 `ValidateSingletonCreation` and `CountObjects` signatures are unchanged.
 
@@ -200,41 +200,41 @@ and deny logic. The new signature is `DenyCountGtZero(count, gvk)` — it
 only handles the deny decision. Counting is now done separately via
 `CountObjects`.
 
-### TLS (`framework/tls`)
+### TLS (`pkg/tls`)
 
 The operator splits TLS across its local `pkg/tls` (proxy flag strings) and
 `github.com/openshift/controller-runtime-common/pkg/tls` (process
 `crypto/tls.Config` and `SecurityProfileWatcher`). The shared library unifies
-both behind `github.com/opendatahub-io/odh-platform-utilities/framework/tls`.
+both behind `github.com/opendatahub-io/odh-platform-utilities/pkg/tls`.
 
 | Operator / CRC symbol | Shared library | Notes |
 |----------------------|----------------|-------|
-| `pkg/tls.ProfileSpecFromSecurityProfile` | `framework/tls.ProfileSpecFromSecurityProfile` | Compatibility helper; absent profiles fall back to Intermediate |
-| — | `framework/tls.GetStrictTLSProfileSpec` | Rejects explicitly unknown types and nil Custom profiles |
-| `pkg/tls.MinVersionFromSpec` | `framework/tls.MinVersionFromSpec` | Short (`TLS1.2`) and Go (`VersionTLS12`) formats |
-| `pkg/tls.CipherSuitesFromSpec` | `framework/tls.CipherSuitesFromSpec` | Unchanged |
-| `pkg/tls.FromProfile` | `framework/tls.FromProfile` | Unchanged |
-| `pkg/tls.FromProfileWithCurvePreferences` | `framework/tls.FromProfileWithCurvePreferences` | Adds Go curve preference flags |
-| `pkg/tls.FromProfileStrict*` | `framework/tls.FromProfileStrict*` | Rejects unusable strict profiles; empty type defaults to Intermediate |
-| `pkg/tls.FromAPIServer` | `framework/tls.FromAPIServer` | Legacy profile-only behavior; use `FromAPIServerWithAdherence` to honor policy |
-| `pkg/tls.FromAPIServerWithCurvePreferences` | `framework/tls.FromAPIServerWithCurvePreferences` | Honors adherence and resolves supported groups |
-| `pkg/tls.ShouldHonorClusterTLSProfile` | `framework/tls.ShouldHonorClusterTLSProfile` | Unknown adherence values fail closed as Strict |
-| `pkg/tls.ValidateStrictManagerTLSProfile` | `framework/tls.ValidateStrictTLSProfile` | Validates TLS versions, ciphers, and groups representable by Go |
-| CRC `FetchAPIServerTLSProfile` | `framework/tls.FetchAPIServerTLSProfile` | Errors on Get failure; use `LoadWithAdherence` for policy-aware startup |
-| CRC `NewTLSConfigFromProfile` | `framework/tls.ConfigFromProfileStrict` | Validates before conversion and also maps `Groups` onto `CurvePreferences`; use `ConfigFromProfile` only for compatibility paths |
-| CRC `SecurityProfileWatcher` | `framework/tls.SecurityProfileWatcher` | Watches profile and adherence changes |
-| `cmd/main.go` `fetchTLSProfile` | `framework/tls.LoadWithAdherence` | Returns profile, adherence, and watchability; uses Intermediate fallback for malformed types under NoOpinion/Legacy and validates applied Strict profiles |
+| `pkg/tls.ProfileSpecFromSecurityProfile` | `pkg/tls.ProfileSpecFromSecurityProfile` | Compatibility helper; absent profiles fall back to Intermediate |
+| — | `pkg/tls.GetStrictTLSProfileSpec` | Rejects explicitly unknown types and nil Custom profiles |
+| `pkg/tls.MinVersionFromSpec` | `pkg/tls.MinVersionFromSpec` | Short (`TLS1.2`) and Go (`VersionTLS12`) formats |
+| `pkg/tls.CipherSuitesFromSpec` | `pkg/tls.CipherSuitesFromSpec` | Unchanged |
+| `pkg/tls.FromProfile` | `pkg/tls.FromProfile` | Unchanged |
+| `pkg/tls.FromProfileWithCurvePreferences` | `pkg/tls.FromProfileWithCurvePreferences` | Adds Go curve preference flags |
+| `pkg/tls.FromProfileStrict*` | `pkg/tls.FromProfileStrict*` | Rejects unusable strict profiles; empty type defaults to Intermediate |
+| `pkg/tls.FromAPIServer` | `pkg/tls.FromAPIServer` | Legacy profile-only behavior; use `FromAPIServerWithAdherence` to honor policy |
+| `pkg/tls.FromAPIServerWithCurvePreferences` | `pkg/tls.FromAPIServerWithCurvePreferences` | Honors adherence and resolves supported groups |
+| `pkg/tls.ShouldHonorClusterTLSProfile` | `pkg/tls.ShouldHonorClusterTLSProfile` | Unknown adherence values fail closed as Strict |
+| `pkg/tls.ValidateStrictManagerTLSProfile` | `pkg/tls.ValidateStrictTLSProfile` | Validates TLS versions, ciphers, and groups representable by Go |
+| CRC `FetchAPIServerTLSProfile` | `pkg/tls.FetchAPIServerTLSProfile` | Errors on Get failure; use `LoadWithAdherence` for policy-aware startup |
+| CRC `NewTLSConfigFromProfile` | `pkg/tls.ConfigFromProfileStrict` | Validates before conversion and also maps `Groups` onto `CurvePreferences`; use `ConfigFromProfile` only for compatibility paths |
+| CRC `SecurityProfileWatcher` | `pkg/tls.SecurityProfileWatcher` | Watches profile and adherence changes |
+| `cmd/main.go` `fetchTLSProfile` | `pkg/tls.LoadWithAdherence` | Returns profile, adherence, and watchability; uses Intermediate fallback for malformed types under NoOpinion/Legacy and validates applied Strict profiles |
 
 Callers must `configv1.Install(scheme)` and grant `get` on
 `apiservers.config.openshift.io`. Grant `list` and `watch` only when
-registering `SecurityProfileWatcher`. `framework/tls` is the scoped framework
-package that imports `github.com/openshift/api`.
+registering `SecurityProfileWatcher`. `pkg/tls` is the scoped package that
+imports `github.com/openshift/api`.
 
 Use `controller-runtime-common/pkg/tls.SetNextProtos` directly for ALPN; the
-framework package intentionally does not wrap this generic helper.
+shared package intentionally does not wrap this generic helper.
 For an adherence-only read, use
 `controller-runtime-common/pkg/tls.FetchAPIServerTLSAdherencePolicy` directly;
-prefer `framework/tls.LoadWithAdherence` when both profile and policy are needed.
+prefer `pkg/tls.LoadWithAdherence` when both profile and policy are needed.
 
 How a standalone module should wire this in `main.go` and reconcile:
 [TLS Configuration for Module Controllers](./module-tls.md).
@@ -249,5 +249,5 @@ How a standalone module should wire this in `main.go` and reconcile:
 6. [ ] Replace `status.PhaseReady` etc. with `common.PhaseReady`
 7. [ ] Run `go mod tidy` to clean up removed operator dependencies
 8. [ ] Verify no imports from `github.com/opendatahub-io/opendatahub-operator/internal/`
-9. [ ] Verify no imports from `github.com/openshift/api` or `github.com/openshift/library-go` outside `framework/tls`
+9. [ ] Verify no imports from `github.com/openshift/api` or `github.com/openshift/library-go` outside `pkg/tls`
 10. [ ] Run tests to confirm behavior is unchanged

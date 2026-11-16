@@ -20,8 +20,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run golangci-lint
-        run: make lint-all
+      - name: Lint product module
+        run: make lint
+
+      - name: Lint flakiness tool module
+        run: make -C flakiness lint
 
   test:
     name: Test
@@ -33,23 +36,17 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests (root)
+      - name: Test product module
         run: make test
 
-      - name: Run tests (framework)
-        run: make -C framework test
-
-      - name: Run tests (framework/testing)
-        run: make -C framework/testing test
-
-      - name: Run tests (flakiness)
+      - name: Test flakiness tool module
         run: make -C flakiness test
 
       - name: Upload coverage to Codecov
         if: github.event_name == 'pull_request'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          files: cover.out,framework/cover.out,framework/testing/cover.out,flakiness/cover.out
+          files: cover.out,flakiness/cover.out
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -64,8 +61,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Verify go mod tidy
-        run: make verify-tidy-all
+      - name: Verify product module is tidy
+        run: make verify-tidy
+
+      - name: Verify flakiness tool module is tidy
+        run: make -C flakiness verify-tidy
 
       - name: Verify formatting
-        run: make verify-fmt
+        run: make verify-fmt-all

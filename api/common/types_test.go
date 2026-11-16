@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	"github.com/operator-framework/api/pkg/lib/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -242,6 +243,7 @@ func TestConditionSeverityConstants(t *testing.T) {
 
 	assert.Equal(t, common.ConditionSeverityError, common.ConditionSeverity(""))
 	assert.Equal(t, common.ConditionSeverityInfo, common.ConditionSeverity("Info"))
+	assert.Equal(t, "Error", common.ConditionReasonError)
 }
 
 func TestConditionTypeConstants(t *testing.T) {
@@ -295,6 +297,20 @@ func TestDeepCopyCondition(t *testing.T) {
 	assert.Equal(t, original, copied)
 }
 
+func TestDeepCopyRelease(t *testing.T) {
+	t.Parallel()
+
+	original := &common.Release{
+		Name:    common.Platform("OpenDataHub"),
+		Version: version.OperatorVersion{},
+	}
+
+	copied := original.DeepCopy()
+	require.NotNil(t, copied)
+	assert.Equal(t, original, copied)
+	assert.NotSame(t, original, copied)
+}
+
 func TestDeepCopyComponentRelease(t *testing.T) {
 	t.Parallel()
 
@@ -346,6 +362,9 @@ func TestDeepCopyNil(t *testing.T) {
 
 	var c *common.Condition
 	assert.Nil(t, c.DeepCopy())
+
+	var r *common.Release
+	assert.Nil(t, r.DeepCopy())
 
 	var cr *common.ComponentRelease
 	assert.Nil(t, cr.DeepCopy())

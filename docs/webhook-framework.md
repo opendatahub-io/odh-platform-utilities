@@ -1,6 +1,6 @@
 # Webhook framework
 
-`framework/webhook` registers admission endpoints on a controller-runtime manager.
+`pkg/webhook` registers admission endpoints on a controller-runtime manager.
 Call `Build()` for each endpoint before starting the manager. The builder supplies
 the manager's uncached API reader and registers the handler on its webhook server.
 
@@ -22,15 +22,14 @@ as resource objects.
 
 ## Create-only validation
 
-This example rejects a second instance of a singleton CR. The module imports
-the root-module singleton helper; the framework module does not depend on it.
+This example rejects a second instance of a singleton CR. The webhook builder
+and singleton helper now share the same `pkg/webhook` package.
 
 ```go
 import (
     "context"
 
-    webhookutil "github.com/opendatahub-io/odh-platform-utilities/pkg/webhook"
-    frameworkwebhook "github.com/opendatahub-io/odh-platform-utilities/framework/webhook"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/webhook"
     "k8s.io/apimachinery/pkg/runtime/schema"
     ctrl "sigs.k8s.io/controller-runtime"
     "sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,9 +40,9 @@ var moduleGVK = schema.GroupVersionKind{Group: "example.opendatahub.io", Version
 
 // +kubebuilder:webhook:path=/validate-mymodule,mutating=false,failurePolicy=fail,sideEffects=None,groups=example.opendatahub.io,resources=mymodules,verbs=create,versions=v1,name=mymodule-validator.opendatahub.io,admissionReviewVersions=v1
 func SetupWebhook(mgr ctrl.Manager) error {
-    return frameworkwebhook.For(mgr, "/validate-mymodule", moduleGVK).
+    return webhook.For(mgr, "/validate-mymodule", moduleGVK).
         OnCreate(func(ctx context.Context, req admission.Request, reader client.Reader) admission.Response {
-            return webhookutil.ValidateSingletonCreation(ctx, reader, &req, moduleGVK)
+            return webhook.ValidateSingletonCreation(ctx, reader, &req, moduleGVK)
         }).Build()
 }
 ```
@@ -77,7 +76,7 @@ the first error, and retain warnings from callbacks already run. Omitted
 operations are allowed.
 
 ```go
-err := frameworkwebhook.Validating[*MyModule](mgr, "/validate-mymodule").
+err := webhook.Validating[*MyModule](mgr, "/validate-mymodule").
     OnCreate(func(ctx context.Context, obj *MyModule, reader client.Reader) (admission.Warnings, error) {
         return validateModule(ctx, obj, reader)
     }).
@@ -96,7 +95,7 @@ object and stop at the first error. Use a separate mutating webhook marker and
 path, with the operations on which defaulting should run.
 
 ```go
-err := frameworkwebhook.Defaulting[*MyModule](mgr, "/mutate-mymodule").
+err := webhook.Defaulting[*MyModule](mgr, "/mutate-mymodule").
     WithDefault(func(ctx context.Context, obj *MyModule, reader client.Reader) error {
         return applyDefaults(ctx, obj, reader)
     }).Build()

@@ -7,7 +7,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 
@@ -125,7 +124,7 @@ func TestWithOwnerReferenceRejectsDifferentControllerDuplicate(t *testing.T) {
 			Kind:       "ConfigMap",
 			Name:       "existing-controller",
 			UID:        "uid-existing",
-			Controller: ptr.To(true),
+			Controller: new(true),
 		},
 	})
 
@@ -178,7 +177,7 @@ func TestWithOwnerReferenceAllowsNonController(t *testing.T) {
 			Kind:       "ConfigMap",
 			Name:       "existing-controller",
 			UID:        "uid-existing",
-			Controller: ptr.To(true),
+			Controller: new(true),
 		},
 	})
 
@@ -284,7 +283,7 @@ func TestControlledByRejectsDifferentController(t *testing.T) {
 			Kind:       "ConfigMap",
 			Name:       "existing-controller",
 			UID:        "uid-existing",
-			Controller: ptr.To(true),
+			Controller: new(true),
 		},
 	})
 
@@ -322,7 +321,7 @@ func TestControlledByAllowsAfterNonControllerRef(t *testing.T) {
 			Kind:       "ConfigMap",
 			Name:       "non-controller",
 			UID:        "uid-existing",
-			Controller: ptr.To(false),
+			Controller: new(false),
 		},
 	})
 

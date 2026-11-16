@@ -12,7 +12,7 @@ import (
 
 // ConditionReasonError is the default reason string used when marking a
 // condition as failed via WithError.
-const ConditionReasonError = "Error"
+const ConditionReasonError = common.ConditionReasonError
 
 // Manager provides a Knative-inspired condition management interface that
 // tracks a "happy" condition (typically Ready) and its dependents. The

@@ -37,25 +37,29 @@ For architectural context see:
 
 ## Repository Structure
 
-This repository contains **three Go modules**:
+This repository has one **product Go module**:
+`github.com/opendatahub-io/odh-platform-utilities` at the repository root.
+Packages under `api/`, `pkg/`, `framework/`, and `testing/` are all part of that
+module and are released together with root `v*` tags.
 
-| Module | Path | Purpose |
-|--------|------|---------|
-| `github.com/opendatahub-io/odh-platform-utilities` | `/` (root) | Low-level, dependency-light utilities |
-| `github.com/opendatahub-io/odh-platform-utilities/framework` | `framework/` | Opinionated controller framework |
-| `github.com/opendatahub-io/odh-platform-utilities/framework/testing` | `framework/testing/` | Live-cluster integration PR gate |
+`flakiness/` and the modules under `examples/` are standalone tooling modules,
+not product modules. CI validates the root product module and `flakiness/`
+separately.
 
-The `framework/` and `framework/testing/` modules depend on the root module
-(via `replace` for local development).
+A consumer developing against a local checkout needs one replacement:
 
-### Root Module
+```go
+replace github.com/opendatahub-io/odh-platform-utilities => /path/to/odh-platform-utilities
+```
+
+### Product Module
 
 ```text
 api/
   common/          Platform contract: PlatformObject interface, Status,
-                   Condition, ComponentRelease types, Phase/Condition
-                   constants, ManagementSpec, accessor interfaces,
-                   DeepCopy methods.
+                   Condition, ComponentRelease, Release, Platform,
+                   Phase/Condition constants, ManagementSpec, accessor
+                   interfaces, and DeepCopy methods.
     validation/    PlatformObject contract validation
                    (Validate, ValidatePlatformObject).
 
@@ -70,18 +74,24 @@ pkg/
   metadata/        Well-known label and annotation constants.
     annotations/   Contract and recommended annotation keys.
     labels/        Contract and recommended label keys, NormalizePartOfValue.
-  webhook/         Admission webhook helpers for singleton validation
+  webhook/         Admission webhook builder plus singleton validation helpers
                    (ValidateSingletonCreation, CountObjects, DenyCountGtZero).
+  client/          Shared Kubernetes client helpers.
+  manager/         Controller manager construction helpers.
+  rules/           RBAC rule evaluation and authorized resource discovery.
+  ingressassignment/
+                   Namespace ingress-assignment resolution.
+  testing/         Gomega matchers and jq-based test assertions.
   controller/      Controller utilities.
-    conditions/    Knative-inspired condition management with automatic
-                   aggregation, severity-based filtering, Manager pattern,
-                   and low-level condition CRUD helpers.
+    conditions/    Low-level condition management.
     gc/            Garbage collection (Collector, RBAC authorization,
-                   predicates, metrics).                   
-    predicates/    Optional event-filtering predicates for controller-runtime
-                   (GenerationChanged, LabelSelector, AnnotationChanged,
-                   Deletion).
-    actions/       Action function type (Fn) and ReconciliationRequest definition.        
+                   predicates, metrics).
+    predicates/    Default and specialized event predicates.
+    handlers/      Watch event handlers.
+    types/         Reconciliation requests, manifest descriptors, and hashes.
+    reconciler/    Generic reconciler and builder.
+    actions/       Reconcile pipeline actions: render, deploy, status, GC,
+                   caching, dynamic ownership, deletion, and sanity checks.
   render/          Manifest rendering engines (Helm, Kustomize, Go template).
     cacher/        Render caching layer.
     helm/          Helm chart renderer.
@@ -97,120 +107,52 @@ pkg/
                    crypto/tls.Config mapping, proxy flag strings,
                    SecurityProfileWatcher). Scoped openshift/api exception.
 
-docs/              Documentation beyond GoDoc.
-examples/          Runnable usage examples.
+testing/
+  integration/      Live-cluster PR gate (`integration.Run`).
+
+framework/          Retained behaviorally distinct helpers; still part of the
+                    root module (see below).
+docs/               Documentation beyond GoDoc.
+examples/           Standalone runnable tool modules.
+flakiness/          Standalone flakiness tool module.
 ```
 
-### Framework Module (`framework/`)
+### Moved and Retained Framework Packages
 
-The framework module provides an opinionated, batteries-included controller
-framework built on controller-runtime. It is designed for teams building ODH
-module controllers and provides a complete reconcile/deploy/GC lifecycle out of
-the box.
+Most former framework public packages now use root `pkg/` paths:
 
-```text
-framework/
-  api/                          Re-exports root-module platform types;
-                                adds Release, Platform types.
-  cluster/                      CRD existence checks, API availability,
-                                singleton listing (HasCRD, IsAPIAvailable,
-                                ListGVK).
-    gvk/                        Well-known GroupVersionKind constants
-                                (Deployment, ClusterRole, monitoring CRDs).
-  controller/
-    reconciler/                 Generic Reconciler with:
-                                - Finalizer management (add/remove)
-                                - Action pipeline execution
-                                - Condition aggregation & phase computation
-                                - Status SSA write
-                                - Pre-apply hooks
-                                - Dynamic ownership support
-                                - Default requeue interval for polling
-                                  non-Kubernetes state
-                                Options: WithRelease, WithFinalizerName,
-                                WithConditionsManagerFactory, WithPhaseNames,
-                                WithPreApplyFn, WithDynamicOwnership,
-                                WithDefaultRequeueAfter, etc.
-                                ReconcilerBuilder also exposes
-                                WatchesRawSource to register a raw
-                                controller-runtime source.Source (e.g. a
-                                channel-backed source.Channel) for triggering
-                                reconciles from non-Kubernetes events.
-    actions/                    Action function type (Fn) and Getter[T].
-      deploy/                   Resource deployment via SSA or patch:
-                                - Deploy cache (fingerprint-based skip)
-                                - Per-GVK customizers (Deployments, ClusterRoles,
-                                  observability CRs)
-                                - Merge strategies (preserve user replicas/resources)
-                                - Configurable labels, annotations, field owner
-                                - Apply-order sorting
-                                Options: WithMode, WithCache, WithApplyOrder,
-                                WithApplyCustomizer, WithPatchCustomizer, etc.
-      gc/                       Label-selector garbage collection:
-                                - RBAC-aware resource discovery
-                                - Type and object predicates
-                                - Configurable propagation policy
-                                - Unremovable GVK safelist (CRDs, Leases)
-                                - Prometheus metrics
-                                Options: WithPartOfLabel, WithUnremovables,
-                                WithObjectPredicate, WithTypePredicate, etc.
-      render/
-        helm/                   Helm chart render action.
-        kustomize/              Kustomize render action.
-        template/               Go template render action.
-      deleteresource/           Explicit resource deletion action.
-      dynamicownership/         Dynamic watch registration for deployed
-                                resources with ownership tracking and
-                                CRD watches.
-      sanitycheck/              Pre-reconciliation cluster state validation
-                                (ensure unwanted CRDs are absent).
-      status/
-        deployments/            Deployment availability status checks.
-      resourcecacher/           Reconciliation-level resource caching.
-      cacher/                   Action-level caching (skip re-execution
-                                when inputs unchanged).
-      errors/                   StopError sentinel for halting the action
-                                pipeline without returning a real error.
-    conditions/                 Knative-inspired condition Manager:
-                                - Automatic happiness aggregation from
-                                  dependent conditions
-                                - Severity-based filtering (Error only)
-                                - Stale condition cleanup
-                                - Sort by priority
-                                Helpers: SetStatusCondition,
-                                FindStatusCondition, RemoveStatusCondition,
-                                IsStatusConditionTrue.
-    handlers/                   Watch event handlers: LabelToName,
-                                AnnotationToName, ToNamed, RequestFromObject.
-    predicates/                 Default predicates (DefaultPredicate,
-                                DefaultDeploymentPredicate) plus sub-packages:
-      dependent/                Dependent resource predicate.
-      generation/               Generation-changed predicate.
-      hash/                     Hash-changed predicate.
-      label/                    Label-selector predicate.
-      partial/                  Partial-object predicate.
-      resources/                Resource-specific predicates (Deployment
-                                status, created/deleted/named).
-    types/                      ReconciliationRequest, ManifestInfo,
-                                HelmChartInfo, TemplateInfo, Controller
-                                interface, Hash/HashStr utilities.
-  metadata/                     Annotation suffix constants used by
-                                deploy/GC actions.
-  resources/                    Resource helpers: GVK resolution,
-                                apply-order sorting, owner references,
-                                status apply, EnsureGroupVersionKind.
-  rules/                        RBAC rule evaluation:
-                                SelfSubjectRulesReview, permission checks,
-                                authorized resource listing.
-  utils/
-    template/                   Template utilities.
-    test/
-      matchers/                 Gomega matchers and jq-based assertions
-                                for integration tests.
-  testing/                      Nested Go module (framework/testing).
-    integration/                Live-cluster PR gate ([Run]). See
-                                docs/integration-testing.md.
-```
+| Previous path | Current path |
+|---------------|--------------|
+| `framework/controller/actions` | `pkg/controller/actions` |
+| `framework/controller/reconciler` | `pkg/controller/reconciler` |
+| `framework/controller/handlers` | `pkg/controller/handlers` |
+| `framework/controller/types` | `pkg/controller/types` |
+| `framework/controller/predicates` | `pkg/controller/predicates` |
+| `framework/client` | `pkg/client` |
+| `framework/manager` | `pkg/manager` |
+| `framework/tls` | `pkg/tls` |
+| `framework/rules` | `pkg/rules` |
+| `framework/cluster/gvk` | `pkg/cluster/gvk` |
+| `framework/metadata` | `pkg/metadata` |
+| `framework/webhook` | `pkg/webhook` |
+| `framework/utils/ingressassignment` | `pkg/ingressassignment` |
+| `framework/utils/test` | `pkg/testing` |
+| `framework/testing` | `testing` |
+
+`framework/api` was deleted. Contract types, including `Release` and `Platform`,
+are in `api/common`.
+
+The following behaviorally distinct packages intentionally remain under
+`framework/` pending separate behavior deduplication:
+
+- `framework/controller/conditions`
+- `framework/cluster`
+- `framework/resources`
+- `framework/render/kustomize`
+- `framework/utils/template`
+
+These retained paths are compatibility/helper packages in the root module, not
+a separate framework module.
 
 #### Key Framework Concepts
 
@@ -246,6 +188,8 @@ supports unmanaged resources (annotation-based opt-out).
 | `ConditionType` | `api/common` | Typed string for condition type identifiers |
 | `ConditionTypeReady` | `api/common` | Mandatory condition type constant |
 | `ComponentRelease` | `api/common` | Release metadata for a component |
+| `Release` | `api/common` | Operator version and platform release metadata |
+| `Platform` | `api/common` | Platform release identifier |
 | `ManagementSpec` | `api/common` | Management state (Managed/Removed) |
 | `Validate` | `api/common/validation` | Runtime PlatformObject contract validation |
 | `ValidatePlatformObject` | `api/common/validation` | Test helper wrapping Validate |
@@ -274,13 +218,15 @@ supports unmanaged resources (annotation-based opt-out).
 | `LabelSelectorPredicate` | `pkg/controller/predicates` | Event filter by label selector |
 | `AnnotationChangedPredicate` | `pkg/controller/predicates` | Update filter on single annotation key |
 | `DeletionPredicate` | `pkg/controller/predicates` | Pass only delete events |
-| `FromAPIServer` | `framework/tls` | Fetch cluster TLS profile as version/cipher flag strings |
-| `ConfigFromProfile` | `framework/tls` | Map a TLSProfileSpec to controller-runtime TLSOpts |
-| `SecurityProfileWatcher` | `framework/tls` | Restart the manager when the cluster TLS profile or adherence changes |
+| `FromAPIServer` | `pkg/tls` | Fetch cluster TLS profile as version/cipher flag strings |
+| `ConfigFromProfile` | `pkg/tls` | Map a TLSProfileSpec to controller-runtime TLSOpts |
+| `SecurityProfileWatcher` | `pkg/tls` | Restart the manager when the cluster TLS profile or adherence changes |
 
 ## Build, Test, and Lint Commands
 
 ```bash
+# The product module uses Go 1.26.0. Root ./... includes api/, pkg/,
+# framework/, and testing/.
 make test          # Run tests with race detector and coverage
 make lint          # Run golangci-lint (installs if missing)
 make lint-fix      # Auto-fix lint issues
@@ -304,12 +250,12 @@ new helper, constant, or utility function:
 1. **Search the codebase** for existing implementations. Common locations:
    - `api/common/` — condition types, phases, platform contract types
    - `pkg/resources/` — root-module helpers: `Decode`, `Hash`, `SortByApplyOrder`, `Resource`
-   - `framework/resources/` — framework helpers: `Apply`, `GvkToUnstructured`, `Source`, `EnsureGroupVersionKind`
-   - `framework/cluster/gvk/` — well-known GVK constants
+   - `framework/resources/` — retained helpers: `Apply`, `GvkToUnstructured`, `Source`, `EnsureGroupVersionKind`
+   - `pkg/cluster/gvk/` — well-known GVK constants
    - `framework/controller/conditions/` — `IsStatusConditionTrue`, `FindStatusCondition`
 
 2. **Check if it belongs in a shared location.** If you need a GVK constant,
-   add it to `framework/cluster/gvk/gvk.go`. If you need a condition type,
+   add it to `pkg/cluster/gvk/gvk.go`. If you need a condition type,
    check `api/common/types.go`. Don't define locals that duplicate shared code.
 
 3. **Convert types to use existing utilities.** Example: to check conditions on
@@ -377,10 +323,10 @@ Keep external dependencies minimal. Direct dependencies are limited to:
 - `sigs.k8s.io/controller-runtime` — controller-runtime client interfaces
 - `k8s.io/api` — core Kubernetes API types (for admission)
 
-`framework/tls` is a scoped framework-module exception: it may import
+`pkg/tls` is a scoped product-module exception: it may import
 `github.com/openshift/api/config/v1`, `github.com/openshift/library-go/pkg/crypto`,
 and `github.com/openshift/controller-runtime-common/pkg/tls` for OpenShift TLS
-profile and runtime helpers. No other framework package may import those modules.
+profile and runtime helpers. No other package may import those modules.
 `pkg/cluster/openshift` stays unstructured.
 
 Do not introduce dependencies on

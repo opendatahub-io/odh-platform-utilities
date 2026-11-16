@@ -1,6 +1,6 @@
 # Ingress assignment resolver
 
-`framework/utils/ingressassignment.Resolve` reads a Namespace's ingress assignment and
+`pkg/ingressassignment.Resolve` reads a Namespace's ingress assignment and
 returns the selected configured `Ingress` unchanged, including its ingress name,
 Gateway name and namespace, optional hostname, and `IsDefault`. Pass the manager's
 cached `client.Client`, the Namespace name, and the configured ingresses.

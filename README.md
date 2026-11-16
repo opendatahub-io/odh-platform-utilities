@@ -8,104 +8,107 @@ accelerate module controller development and ensure consistency across modules.
 
 ## Installation
 
+All product packages are published from one Go module:
+
 ```bash
 go get github.com/opendatahub-io/odh-platform-utilities
 ```
 
+The product module requires Go 1.26.0.
+
 ## Usage
 
 ```go
-// Root module -- low-level utilities
-import "github.com/opendatahub-io/odh-platform-utilities/pkg/<package>"
+import (
+    common "github.com/opendatahub-io/odh-platform-utilities/api/common"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/reconciler"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/deploy"
 
-// Framework module -- controller reconciler, actions, conditions
-import "github.com/opendatahub-io/odh-platform-utilities/framework/<package>"
+    // Retained helper package in the same root module.
+    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
+)
 ```
 
-Root-module packages are organized under `pkg/` with each utility in its own
-sub-package. Framework packages live under `framework/` as a separate Go module.
 See the [examples](./examples/) directory for runnable usage examples and the
 [GoDoc](https://pkg.go.dev/github.com/opendatahub-io/odh-platform-utilities)
 for full API documentation.
 
 ## Repository Structure
 
-This repository contains three Go modules:
+The repository has one **product Go module** at the root. `api/`, `pkg/`,
+`framework/`, and `testing/` are all part of
+`github.com/opendatahub-io/odh-platform-utilities` and share root `v*` releases.
+There are no nested framework or testing module versions.
 
-| Module | Path | Description |
-|--------|------|-------------|
-| `github.com/opendatahub-io/odh-platform-utilities` | `/` (root) | Low-level, dependency-light utilities for platform contract types, metadata, cluster detection, manifest rendering, and resource helpers |
-| `github.com/opendatahub-io/odh-platform-utilities/framework` | `framework/` | Opinionated controller framework providing a full reconciler, action pipeline, deploy/GC lifecycle, condition management, and test helpers |
-| `github.com/opendatahub-io/odh-platform-utilities/framework/testing` | `framework/testing/` | Live-cluster PR gate (`integration.Run`) for module repos |
+The standalone `flakiness/` module and modules under `examples/` are tooling;
+they are not additional product modules. CI checks the product module and the
+flakiness tool module separately.
 
-The root module is suitable for any Go project that needs platform types or
-standalone helpers. The `framework/` module is for teams building full
-controller-runtime-based operators that want the complete reconcile/deploy/GC
-pipeline out of the box.
+For local product development, consumers need only one replacement:
 
-## Root Module Packages
-
-| Package | Description |
-|---------|-------------|
-| `api/common` | Platform contract: `PlatformObject` interface, `Status`, `Condition`, `ComponentRelease` types, condition/phase constants |
-| `pkg/metadata/labels` | Platform label key constants and `NormalizePartOfValue` helper |
-| `pkg/metadata/annotations` | Platform annotation key constants |
-| `pkg/cluster` | Cluster type detection, FIPS detection, platform variant detection, CRD existence checks; functional options for labels, annotations, owner references |
-| `pkg/cluster/openshift` | OpenShift-specific queries: version, SNO, auth mode, domain |
-| `pkg/cluster/olm` | OLM-specific queries: operator existence, subscription lookup |
-| `pkg/webhook` | Admission webhook helpers for singleton validation (`ValidateSingletonCreation`) |
-| `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
-| `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
-| `pkg/render/template` | Go `text/template` renderer with dynamic data support |
-| `pkg/render/cacher` | Generic render caching layer (skip re-render when inputs unchanged) |
-| `pkg/render` | Shared types (`ReconciliationRequest`, `Fn`), Prometheus metrics |
-| `pkg/resources` | Kubernetes resource helpers (`Decode`, `SetLabels`, `SetAnnotations`, `UnstructuredList`) |
-| `pkg/template` | Template function map (`indent`, `nindent`, `toYaml`) |
-
-## Framework Module
-
-The `framework/` directory is a separate Go module
-(`github.com/opendatahub-io/odh-platform-utilities/framework`) that provides an
-opinionated controller framework built on controller-runtime.
-
-### Installation
-
-```bash
-go get github.com/opendatahub-io/odh-platform-utilities/framework
+```go
+replace github.com/opendatahub-io/odh-platform-utilities => /path/to/odh-platform-utilities
 ```
 
-### Packages
+## Product Packages
 
 | Package | Description |
 |---------|-------------|
-| `api` | Re-exports root-module platform types plus framework-specific `Release` and `Platform` types |
-| `cluster` | CRD existence checks, API availability, singleton listing |
-| `cluster/gvk` | Well-known `GroupVersionKind` constants (Deployment, ClusterRole, monitoring CRDs, etc.) |
-| `tls` | `controller-runtime-common` TLS primitives plus ODH adherence policy, strict validation, TLS 1.2 cipher filtering, and proxy flags |
-| `controller/reconciler` | Generic `Reconciler` with finalizer management, condition aggregation, phase computation, and status SSA |
-| `controller/actions` | Action function type (`Fn`) used to build reconciliation pipelines |
-| `controller/actions/deploy` | Resource deployment via SSA or patch with caching, merge strategies (Deployments, ClusterRoles, observability CRs), and per-GVK customizers |
-| `controller/actions/gc` | Label-selector-based garbage collection with RBAC-aware resource discovery and configurable predicates |
-| `controller/actions/render/helm` | Helm chart render action for the reconciliation pipeline |
-| `controller/actions/render/kustomize` | Kustomize render action for the reconciliation pipeline |
-| `controller/actions/render/template` | Go template render action for the reconciliation pipeline |
-| `controller/actions/deleteresource` | Explicit resource deletion action |
-| `controller/actions/dynamicownership` | Dynamic watch registration for deployed resources with ownership tracking |
-| `controller/actions/sanitycheck` | Pre-reconciliation cluster state validation (e.g. ensure unwanted CRDs are absent) |
-| `controller/actions/status/deployments` | Deployment availability status checks |
-| `controller/actions/resourcecacher` | Reconciliation-level resource caching |
-| `controller/actions/cacher` | Action-level caching (skip re-execution when inputs unchanged) |
-| `controller/actions/errors` | Stop-error sentinel for halting the action pipeline |
-| `controller/conditions` | Knative-inspired condition manager with automatic aggregation, severity filtering, and stale cleanup |
-| `controller/handlers` | Watch event handlers: label-to-name, annotation-to-name, fixed-name routing |
-| `controller/predicates` | Default event-filtering predicates (generation change, label/annotation change, deployment status) |
-| `controller/types` | `ReconciliationRequest`, `ManifestInfo`, `HelmChartInfo`, `TemplateInfo`, and hash utilities |
-| `webhook` | Admission webhook builder; see the [usage guide](./docs/webhook-framework.md) |
-| `metadata` | Annotation suffix constants used by deploy/GC actions |
-| `resources` | Resource helpers: GVK resolution, apply-order sorting, owner references, status apply |
-| `rules` | RBAC rule evaluation: `SelfSubjectRulesReview`, permission checks, authorized resource listing |
-| `utils/template` | Template utilities |
-| `utils/test/matchers` | Gomega matchers and jq-based assertions for integration tests |
+| `api/common` | Platform contract, including `PlatformObject`, `Status`, `Condition`, `ComponentRelease`, `Release`, `Platform`, and condition/phase constants |
+| `pkg/controller/reconciler` | Generic reconciler with finalizers, action pipelines, condition aggregation, phase computation, and status SSA |
+| `pkg/controller/actions` | Pipeline action types plus deploy, GC, render, status, caching, dynamic ownership, deletion, and sanity-check actions |
+| `pkg/controller/handlers` | Watch event handlers |
+| `pkg/controller/types` | Reconciliation requests, manifest descriptors, controller interfaces, and hashes |
+| `pkg/controller/predicates` | Default and specialized controller-runtime event predicates |
+| `pkg/client` | Shared Kubernetes client helpers |
+| `pkg/manager` | Controller manager construction helpers |
+| `pkg/cluster` | Cluster detection, singleton enforcement, metadata options, and ownership helpers |
+| `pkg/cluster/gvk` | Well-known Kubernetes and monitoring `GroupVersionKind` constants |
+| `pkg/rules` | RBAC rule evaluation and authorized-resource discovery |
+| `pkg/tls` | OpenShift TLS profile resolution, process TLS configuration, proxy flags, and profile watching |
+| `pkg/metadata` | Deploy/GC metadata plus platform label and annotation packages |
+| `pkg/webhook` | Admission webhook builder and singleton validation helpers |
+| `pkg/ingressassignment` | Namespace ingress-assignment resolution |
+| `pkg/testing` | Gomega matchers and jq-based test assertions |
+| `testing/integration` | Live-cluster integration PR gate (`integration.Run`) |
+| `pkg/render` | Helm, Kustomize, and Go-template rendering with caching and pipeline adapters |
+| `pkg/resources` | Kubernetes resource decoding, hashing, applying, sorting, and metadata helpers |
+| `pkg/deploy` | Stateful resource deployment with caching and merge strategies |
+| `pkg/status` | Conflict-safe status updates |
+
+Some behaviorally distinct compatibility/helper packages intentionally remain
+under `framework/`: `framework/controller/conditions`, `framework/cluster`,
+`framework/resources`, `framework/render/kustomize`, and
+`framework/utils/template`. They are packages in the same root module—not
+separate modules—and remain there pending separate behavior deduplication.
+
+## Import Path Changes
+
+| Previous public path | Current public path |
+|----------------------|---------------------|
+| `framework/controller/actions` | `pkg/controller/actions` |
+| `framework/controller/reconciler` | `pkg/controller/reconciler` |
+| `framework/controller/handlers` | `pkg/controller/handlers` |
+| `framework/controller/types` | `pkg/controller/types` |
+| `framework/controller/predicates` | `pkg/controller/predicates` |
+| `framework/client` | `pkg/client` |
+| `framework/manager` | `pkg/manager` |
+| `framework/tls` | `pkg/tls` |
+| `framework/rules` | `pkg/rules` |
+| `framework/cluster/gvk` | `pkg/cluster/gvk` |
+| `framework/metadata` | `pkg/metadata` |
+| `framework/webhook` | `pkg/webhook` |
+| `framework/utils/ingressassignment` | `pkg/ingressassignment` |
+| `framework/utils/test` | `pkg/testing` |
+| `framework/testing` | `testing` |
+
+`framework/api` was removed. Import contract types, including `Release` and
+`Platform`, from `api/common`.
+
+The canonical `common.PlatformObject` includes `WithReleases`, so implementations
+must provide `GetReleaseStatus` and `SetReleaseStatus` even when they do not use
+the releases status action. `common.Status.Phase` is the typed `common.Phase`;
+convert phase values sourced from `string` variables explicitly.
 
 ## Platform Contract
 
@@ -114,7 +117,7 @@ Module controllers that participate in the ODH platform must implement the
 for the full contract specification and a copy-pasteable implementation example.
 
 To add a live-cluster PR gate in a module repo, import
-`github.com/opendatahub-io/odh-platform-utilities/framework/testing/integration`
+`github.com/opendatahub-io/odh-platform-utilities/testing/integration`
 and follow [docs/integration-testing.md](./docs/integration-testing.md).
 
 ## Metadata Conventions
@@ -255,16 +258,16 @@ strategy.
 
 ### TLS profile resolution
 
-Framework modules can resolve the cluster profile and adherence policy from
+Module controllers can resolve the cluster profile and adherence policy from
 `apiservers.config.openshift.io/cluster` with
-`github.com/opendatahub-io/odh-platform-utilities/framework/tls`. Register
+`github.com/opendatahub-io/odh-platform-utilities/pkg/tls`. Register
 `configv1.Install(scheme)` and grant `get` on that resource. Grant `list` and
 `watch` only when registering `SecurityProfileWatcher`.
 
 ```go
 import (
 	configv1 "github.com/openshift/api/config/v1"
-	pkgtls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
+	pkgtls "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
 )
 
 result, err := pkgtls.LoadWithAdherence(ctx, client)
@@ -293,7 +296,7 @@ when `result.Watchable` is true. Initialize its adherence state from
 
 See [docs/module-tls.md](./docs/module-tls.md) for the expected module wiring
 (scheme, RBAC, manager startup, proxy flags). See
-[framework/tls/AGENTS.md](./framework/tls/AGENTS.md) for fallback policy and the OpenShift
+[pkg/tls/AGENTS.md](./pkg/tls/AGENTS.md) for fallback policy and the OpenShift
 API exception.
 
 ## Manifest Rendering
@@ -367,7 +370,7 @@ See [docs/VERSIONING.md](./docs/VERSIONING.md) for the full versioning strategy.
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26.0
 - [golangci-lint](https://golangci-lint.run/) v2.5.0+
 - [pre-commit](https://pre-commit.com/) (optional but recommended)
 
@@ -382,11 +385,11 @@ cd odh-platform-utilities
 pre-commit install
 pre-commit install --hook-type pre-push
 
-# Run tests
-make test
+# Run all product-module checks (includes api/, pkg/, framework/, and testing/)
+make all
 
-# Run linter
-make lint
+# Include the standalone flakiness tool module
+make all-modules
 
 # See all available targets
 make help

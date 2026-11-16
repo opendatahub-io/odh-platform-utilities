@@ -8,7 +8,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/annotations"
@@ -285,8 +284,8 @@ func OwnerRefFrom(owner client.Object, controller bool) (metav1.OwnerReference, 
 		Kind:               gvk.Kind,
 		Name:               owner.GetName(),
 		UID:                owner.GetUID(),
-		Controller:         ptr.To(controller),
-		BlockOwnerDeletion: ptr.To(true),
+		Controller:         new(controller),
+		BlockOwnerDeletion: new(true),
 	}, nil
 }
 
@@ -318,8 +317,8 @@ func OwnerRefRaw(apiVersion, kind, name string, uid types.UID, controller bool) 
 		Kind:               kind,
 		Name:               name,
 		UID:                uid,
-		Controller:         ptr.To(controller),
-		BlockOwnerDeletion: ptr.To(true),
+		Controller:         new(controller),
+		BlockOwnerDeletion: new(true),
 	}, nil
 }
 

@@ -10,8 +10,8 @@ Each scenario is self-contained. Read only the sections relevant to your module.
 
 **Conventions used in this document:**
 
-- `root` refers to the root Go module (`github.com/opendatahub-io/odh-platform-utilities`)
-- `framework` refers to the framework Go module (`github.com/opendatahub-io/odh-platform-utilities/framework`)
+- All product imports belong to the root Go module (`github.com/opendatahub-io/odh-platform-utilities`)
+- Most controller-framework packages use `pkg/`; behaviorally distinct helpers such as `framework/controller/conditions` remain in `framework/` within that same module
 - Code snippets are illustrative, not compilable standalone programs
 - See [GoDoc](https://pkg.go.dev/github.com/opendatahub-io/odh-platform-utilities) for full API signatures
 
@@ -41,21 +41,22 @@ pipeline to bare controller-runtime with cherry-picked utilities.
 
 ### Option A: Pipeline Approach (ReconcilerBuilder)
 
-Use the framework's `ReconcilerBuilder` to get an ordered action pipeline with
+Use the controller framework's `ReconcilerBuilder` to get an ordered action pipeline with
 built-in finalizer management, condition aggregation, phase computation, and
 status SSA writes.
 
 ```go
 import (
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/reconciler"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/deploy"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/gc"
-    renderhelm "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/helm"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/deployments"
+    common "github.com/opendatahub-io/odh-platform-utilities/api/common"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/reconciler"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/deploy"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/gc"
+    renderhelm "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/helm"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/status/deployments"
     "github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 )
 
-func SetupController(mgr ctrl.Manager, release api.Release) error {
+func SetupController(mgr ctrl.Manager, release common.Release) error {
     _, err := reconciler.ReconcilerFor(mgr, &MyModuleCR{}).
         WithReconcilerOpts(
             reconciler.WithRelease(release),
@@ -215,7 +216,7 @@ In the action pipeline, the kustomize action reads from `rr.Manifests`:
 
 ```go
 import (
-    renderKustomize "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/kustomize"
+    renderKustomize "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/kustomize"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
 
@@ -263,7 +264,7 @@ resources, err := helm.Render(ctx, []helmRenderer.Source{
 In the action pipeline:
 
 ```go
-import renderHelm "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/helm"
+import renderHelm "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/helm"
 
 // Populate rr.HelmCharts in an init action:
 func initAction(ctx context.Context, rr *types.ReconciliationRequest) error {
@@ -310,7 +311,7 @@ resources, err := template.Render(ctx, scheme, []template.TemplateSource{
 In the action pipeline, template data can be static or computed per-reconcile:
 
 ```go
-import renderTemplate "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/template"
+import renderTemplate "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/template"
 
 renderTemplate.NewAction(
     renderTemplate.WithDataFn(func(ctx context.Context, rr *types.ReconciliationRequest) (map[string]any, error) {
@@ -395,7 +396,7 @@ The deploy action (or standalone `Deployer`) stamps lifecycle annotations and
 sets owner references on resources in the same namespace as the CR.
 
 ```go
-import "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/deploy"
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/deploy"
 
 deploy.NewAction(
     deploy.WithMode(deploy.ModeSSA),
@@ -567,7 +568,7 @@ auto-appended dynamic watch/ownership actions). It depends on:
 - Lifecycle annotations stamped by the deploy action on cluster resources
 
 ```go
-import "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/gc"
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/gc"
 
 gc.NewAction(namespaceFn,
     gc.WithPartOfLabel("platform.opendatahub.io/part-of"),
@@ -740,7 +741,7 @@ func myAction(ctx context.Context, rr *types.ReconciliationRequest) error {
 For modules that deploy Deployments and need to reflect their availability:
 
 ```go
-import "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/deployments"
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/status/deployments"
 
 deployments.NewAction(
     deployments.InNamespaceFn(namespaceFn),
@@ -868,8 +869,8 @@ Module CRDs are cluster-scoped singletons. Enforce this at two levels:
 
 **Admission webhook** (defense in depth):
 
-For framework-based modules, register each admission endpoint before starting
-the manager with `framework/webhook.For(mgr, path, myModuleGVK)`. `OnCreate` accepts a
+Register each admission endpoint before starting
+the manager with `pkg/webhook.For(mgr, path, myModuleGVK)`. `OnCreate` accepts a
 CREATE-only function and supplies an uncached API reader. `OnUpdate`,
 `OnDelete`, and `OnConnect` can be chained for other operations. `WithHandler`
 also supplies a decoder for other admission logic. For typed callbacks,
@@ -880,9 +881,9 @@ customizes the controller-runtime webhook; `WithWebhook` accepts a prebuilt one.
 ```go
 // +kubebuilder:webhook:path=/validate-mymodule,mutating=false,failurePolicy=fail,sideEffects=None,groups=example.opendatahub.io,resources=mymodules,verbs=create,versions=v1,name=mymodule-validator.opendatahub.io,admissionReviewVersions=v1
 func SetupWebhook(mgr ctrl.Manager) error {
-    return frameworkwebhook.For(mgr, "/validate-mymodule", myModuleGVK).
+    return webhook.For(mgr, "/validate-mymodule", myModuleGVK).
         OnCreate(func(ctx context.Context, req admission.Request, reader client.Reader) admission.Response {
-            return webhookutil.ValidateSingletonCreation(ctx, reader, &req, myModuleGVK)
+            return webhook.ValidateSingletonCreation(ctx, reader, &req, myModuleGVK)
         }).Build()
 }
 ```
@@ -1042,7 +1043,7 @@ In the pipeline, the sanity check action can block reconciliation when
 deprecated or conflicting CRDs are present:
 
 ```go
-import "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/sanitycheck"
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/sanitycheck"
 
 sanitycheck.NewAction(
     sanitycheck.WithUnwantedResource(deprecatedGVK,
@@ -1476,11 +1477,11 @@ validation.ValidatePlatformContract(t, k8sClient, validation.ContractOptions{
 
 ### JQ-Based Assertions
 
-The framework provides jq-based Gomega matchers for asserting on complex
+The product module provides jq-based Gomega matchers for asserting on complex
 Kubernetes objects without extracting every nested field:
 
 ```go
-import "github.com/opendatahub-io/odh-platform-utilities/framework/utils/test/matchers/jq"
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/testing/matchers/jq"
 
 // Assert on unstructured resources
 g.Expect(deployment).Should(jq.Match(`.spec.replicas == 3`))
@@ -1504,7 +1505,7 @@ g.Expect(resource).Should(
 Use `ExtractStatusCondition` to assert on individual conditions:
 
 ```go
-import "github.com/opendatahub-io/odh-platform-utilities/framework/utils/test/matchers"
+import "github.com/opendatahub-io/odh-platform-utilities/pkg/testing/matchers"
 
 g.Eventually(func() (api.Condition, error) {
     if err := k8sClient.Get(ctx, key, instance); err != nil {
@@ -1546,7 +1547,7 @@ assert.Equal(t, "sha256:abc123...", result)
 opendatahub-operator's webhook/metrics TLS config, and operands such as
 kube-rbac-proxy need min-version and cipher flags of their own.
 
-Use `framework/tls`. Do not copy OpenShift `TLSProfiles` tables into the module.
+Use `pkg/tls`. Do not copy OpenShift `TLSProfiles` tables into the module.
 
 **Expected wiring:**
 
@@ -1578,14 +1579,24 @@ orchestrator projects cluster TLS policy into module CR fields
 ### Import Paths
 
 ```go
-// Root module — low-level utilities
+// All packages below belong to the root product module.
 import (
-    common   "github.com/opendatahub-io/odh-platform-utilities/api/common"
+    common "github.com/opendatahub-io/odh-platform-utilities/api/common"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
-    "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/openshift"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/olm"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/openshift"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/deploy"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/gc"
+    renderHelm "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/helm"
+    renderKustomize "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/kustomize"
+    renderTemplate "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/render/template"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/sanitycheck"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/actions/status/deployments"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/conditions"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/gc"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/reconciler"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/controller/types"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/annotations"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
@@ -1594,25 +1605,12 @@ import (
     "github.com/opendatahub-io/odh-platform-utilities/pkg/render/template"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/resources"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/status"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/testing/matchers/jq"
+    "github.com/opendatahub-io/odh-platform-utilities/pkg/tls"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/webhook"
-)
 
-// Framework module — opinionated controller framework
-import (
-    "github.com/opendatahub-io/odh-platform-utilities/framework/api"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/reconciler"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/deploy"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/gc"
-    renderHelm "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/helm"
-    renderKustomize "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/kustomize"
-    renderTemplate "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/render/template"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/status/deployments"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/sanitycheck"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
-    "github.com/opendatahub-io/odh-platform-utilities/framework/utils/test/matchers/jq"
+    // Behaviorally distinct helper retained in framework/ within the root module.
+    frameworkconditions "github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 )
 ```
 

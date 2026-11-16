@@ -3,7 +3,7 @@ package conditions
 import (
 	"fmt"
 
-	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	api "github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
 type Option func(*api.Condition)

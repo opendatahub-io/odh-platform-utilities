@@ -6,20 +6,9 @@ tag="${1:?release tag is required}"
 repo_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:?repository is required}"
 
 case "$tag" in
-  framework/testing/v*)
-    module_name="framework/testing"
-    tag_pattern="framework/testing/v*"
-    pathspecs=("framework/testing/")
-    ;;
-  framework/v*)
-    module_name="framework"
-    tag_pattern="framework/v*"
-    pathspecs=("framework/" ":(exclude)framework/testing")
-    ;;
   v*)
-    module_name="root"
     tag_pattern="v*"
-    pathspecs=("api/" "pkg/" "go.mod" "go.sum")
+    pathspecs=("api/" "pkg/" "framework/" "testing/" "go.mod" "go.sum")
     ;;
   *)
     printf 'unsupported release tag: %s\n' "$tag" >&2
@@ -61,7 +50,7 @@ body_path="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/release-notes-${tag//\//-}.md"
   done < <(git log --first-parent --reverse --format='%H%x09%s' "${revision_range[@]}" -- "${pathspecs[@]}")
 
   if [[ "$has_changes" == false ]]; then
-    printf 'No %s module source changes in this release.\n' "$module_name"
+    printf 'No product module source changes in this release.\n'
   fi
 
   printf '\n**Full Repository Changelog**: %s\n' "$changelog_url"
