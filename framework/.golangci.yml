@@ -64,6 +64,10 @@ linters:
       - path: '(.+)_test\.go'
         linters:
           - goconst
+      # Connect imports root pkg/postgres so pgx stays out of the root module.
+      - path: 'postgres/'
+        linters:
+          - depguard
 
 formatters:
   enable:
