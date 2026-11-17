@@ -15,11 +15,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func TestClaimSecretWatchByName(t *testing.T) {
+func TestSecretWatchByName(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 	b := &ReconcilerBuilder[*testPlatformObject]{}
-	g.Expect(b.WatchesClaimSecretByName("app", "claim-db", "component")).To(BeIdenticalTo(b))
+	g.Expect(b.WatchesSecretByName("app", "claim-db", "component")).To(BeIdenticalTo(b))
 	g.Expect(b.watches).To(HaveLen(1))
 	watch := b.watches[0]
 	g.Expect(watch.object.GetObjectKind().GroupVersionKind()).To(Equal(gvk.Secret))

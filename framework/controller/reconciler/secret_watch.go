@@ -7,10 +7,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// WatchesClaimSecretByName watches a known claim Secret and enqueues the
-// cluster-scoped component CR. It also catches a Secret recreated without any
-// consumer-owned label or annotation.
-func (b *ReconcilerBuilder[T]) WatchesClaimSecretByName(namespace, secretName, componentName string) *ReconcilerBuilder[T] {
+// WatchesSecretByName watches a known Secret and enqueues the cluster-scoped
+// component CR when it is created, deleted, or its data changes. For a database
+// claim, use status.connection.secretRef.name and the claim's namespace.
+func (b *ReconcilerBuilder[T]) WatchesSecretByName(namespace, secretName, componentName string) *ReconcilerBuilder[T] {
 	return b.WatchesGVK(gvk.Secret,
 		WithEventHandler(handlers.ToNamed(componentName)),
 		WithPredicates(predicate.And(
