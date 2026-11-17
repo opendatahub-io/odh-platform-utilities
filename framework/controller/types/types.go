@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -27,6 +28,7 @@ type Controller interface {
 	GetClient() client.Client
 	GetDiscoveryClient() discovery.DiscoveryInterface
 	GetDynamicClient() dynamic.Interface
+	GetMetadataClient() metadata.Interface
 	IsDynamicOwnershipEnabled() bool
 	IsExcludedFromDynamicOwnership(gvk schema.GroupVersionKind) bool
 }

@@ -57,6 +57,7 @@ func (s SortFn) Then(then SortFn) SortFn {
 type Action struct {
 	fieldOwner            string
 	crdFieldOwner         string
+	previousFieldOwners   []string
 	deployMode            Mode
 	partOfLabelKey        string
 	defaultPartOfLabelKey string
@@ -89,6 +90,20 @@ func WithFieldOwner(value string) ActionOpts {
 func WithCRDFieldOwner(value string) ActionOpts {
 	return func(action *Action) {
 		action.crdFieldOwner = value
+	}
+}
+
+// WithPreviousFieldOwners sets the SSA field owners that previously applied
+// the resources deployed by this action. When the live object carries
+// Apply-operation managedFields entries from any of these owners, the action
+// performs an ownership handoff around its own apply: the desired body is
+// re-applied once under the previous owner (releasing stale associative-list
+// entries), and after the current owner's write succeeds the previous owner
+// applies an identity-only fragment that drops its remaining field claims,
+// completing the transfer.
+func WithPreviousFieldOwners(owners ...string) ActionOpts {
+	return func(action *Action) {
+		action.previousFieldOwners = owners
 	}
 }
 
@@ -423,9 +438,9 @@ func (a *Action) deployCRD(
 
 	switch a.deployMode {
 	case ModePatch:
-		deployedObj, err = a.patch(ctx, rr.Client, &obj, current, patchOps...)
+		deployedObj, err = a.patch(ctx, rr, &obj, current, fo, patchOps...)
 	case ModeSSA:
-		deployedObj, err = a.apply(ctx, rr.Client, &obj, current, applyOps...)
+		deployedObj, err = a.apply(ctx, rr, &obj, current, fo, applyOps...)
 	default:
 		err = fmt.Errorf("unsupported deploy mode %s", a.deployMode)
 	}
@@ -510,9 +525,9 @@ func (a *Action) deploy(
 
 		switch a.deployMode {
 		case ModePatch:
-			deployedObj, err = a.patch(ctx, rr.Client, &obj, current, patchOps...)
+			deployedObj, err = a.patch(ctx, rr, &obj, current, fo, patchOps...)
 		case ModeSSA:
-			deployedObj, err = a.apply(ctx, rr.Client, &obj, current, applyOps...)
+			deployedObj, err = a.apply(ctx, rr, &obj, current, fo, applyOps...)
 		default:
 			err = fmt.Errorf("unsupported deploy mode %s", a.deployMode)
 		}
@@ -552,11 +567,14 @@ func (a *Action) create(
 
 func (a *Action) patch(
 	ctx context.Context,
-	cli client.Client,
+	rr *odhTypes.ReconciliationRequest,
 	obj *unstructured.Unstructured,
 	old *unstructured.Unstructured,
+	fieldOwner string,
 	opts ...client.PatchOption,
 ) (*unstructured.Unstructured, error) {
+	cli := rr.Client
+
 	logf.FromContext(ctx).V(3).Info("patch",
 		"gvk", obj.GroupVersionKind(),
 		"name", client.ObjectKeyFromObject(obj),
@@ -566,6 +584,11 @@ func (a *Action) patch(
 		if err := customizer(ctx, cli, a, obj, old); err != nil {
 			return nil, fmt.Errorf("patch customizer failed for %s %s/%s: %w", obj.GroupVersionKind(), obj.GetNamespace(), obj.GetName(), err)
 		}
+	}
+
+	migration, err := a.migratePreviousFieldOwners(ctx, rr, obj, old, fieldOwner)
+	if err != nil {
+		return nil, err
 	}
 
 	if old == nil {
@@ -590,16 +613,31 @@ func (a *Action) patch(
 		}
 	}
 
+	if err := a.releasePreviousFieldOwners(ctx, cli, obj, old, migration.patchOmitsUserFields, fieldOwner, migration.migrated); err != nil {
+		return nil, err
+	}
+
+	if migration.deferred != nil {
+		// The write and the releases succeeded, but a previous owner's
+		// handoff failed: surface it so the reconcile requeues and the
+		// handoff is retried. The object is not cached as deployed, so the
+		// next reconcile processes it again.
+		return nil, migration.deferred
+	}
+
 	return old, nil
 }
 
 func (a *Action) apply(
 	ctx context.Context,
-	cli client.Client,
+	rr *odhTypes.ReconciliationRequest,
 	obj *unstructured.Unstructured,
 	old *unstructured.Unstructured,
+	fieldOwner string,
 	opts ...client.ApplyOption,
 ) (*unstructured.Unstructured, error) {
+	cli := rr.Client
+
 	logf.FromContext(ctx).V(3).Info("apply",
 		"gvk", obj.GroupVersionKind(),
 		"name", client.ObjectKeyFromObject(obj),
@@ -611,9 +649,26 @@ func (a *Action) apply(
 		}
 	}
 
-	err := resources.Apply(ctx, cli, obj, opts...)
+	migration, err := a.migratePreviousFieldOwners(ctx, rr, obj, old, fieldOwner)
+	if err != nil {
+		return nil, err
+	}
+
+	err = resources.Apply(ctx, cli, obj, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("apply failed %s: %w", obj.GroupVersionKind(), err)
+	}
+
+	if err := a.releasePreviousFieldOwners(ctx, cli, obj, old, migration.patchOmitsUserFields, fieldOwner, migration.migrated); err != nil {
+		return nil, err
+	}
+
+	if migration.deferred != nil {
+		// The write and the releases succeeded, but a previous owner's
+		// handoff failed: surface it so the reconcile requeues and the
+		// handoff is retried. The object is not cached as deployed, so the
+		// next reconcile processes it again.
+		return nil, migration.deferred
 	}
 
 	return obj, nil

@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/metadata"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -38,6 +39,7 @@ func (c *stubController) AddDynamicOwnedType(_ schema.GroupVersionKind)    {}
 func (c *stubController) GetClient() client.Client                         { return nil }
 func (c *stubController) GetDiscoveryClient() discovery.DiscoveryInterface { return c.discovery }
 func (c *stubController) GetDynamicClient() dynamic.Interface              { return nil }
+func (c *stubController) GetMetadataClient() metadata.Interface            { return nil }
 func (c *stubController) IsDynamicOwnershipEnabled() bool                  { return false }
 func (c *stubController) IsExcludedFromDynamicOwnership(_ schema.GroupVersionKind) bool {
 	return false
