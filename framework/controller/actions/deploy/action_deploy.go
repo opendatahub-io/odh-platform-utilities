@@ -675,6 +675,15 @@ func (a *Action) apply(
 }
 
 func (a *Action) shouldOwn(rr *odhTypes.ReconciliationRequest, objGVK schema.GroupVersionKind) bool {
+	// Never set controller owner references on Namespaces: doing so makes
+	// the Kubernetes garbage collector cascade-delete the entire namespace
+	// (and everything in it) when the owning CR is deleted. This mirrors
+	// the pkg/deploy Deployer's unconditional Namespace exclusion and
+	// applies regardless of static Owns()/OwnsGVK() registration.
+	if objGVK == gvk.Namespace {
+		return false
+	}
+
 	if rr.Controller.Owns(objGVK) {
 		return true
 	}
