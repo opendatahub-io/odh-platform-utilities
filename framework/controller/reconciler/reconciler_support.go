@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster/gvk"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/dynamicownership"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
@@ -36,6 +37,19 @@ const (
 
 var (
 	namespaceGVK = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}
+
+	// defaultUnownableGVKs lists the kinds that must never be registered as
+	// statically owned types. The deploy action never sets controller owner
+	// references on them — Namespaces because a controller owner reference
+	// causes cascade deletion of the entire namespace when the CR is deleted,
+	// and CustomResourceDefinitions because they are deployed through a
+	// dedicated path that never sets owner references — so an Owns() watch
+	// for these kinds would silently neither own nor route events. Registering
+	// them fails the reconciliation build instead; use Watches() to watch them.
+	defaultUnownableGVKs = []schema.GroupVersionKind{
+		gvk.Namespace,
+		gvk.CustomResourceDefinition,
+	}
 )
 
 type forInput struct {
@@ -133,6 +147,7 @@ type ReconcilerBuilder[T api.PlatformObject] struct {
 	dependentConditions          []conditions.DependentDefinition
 	dynamicOwnership             bool
 	excludeFromOwnership         []schema.GroupVersionKind
+	unownableGVKs                []schema.GroupVersionKind
 	dynamicOwnershipGVKPreds     map[schema.GroupVersionKind][]predicate.Predicate
 	dynamicOwnershipDefaultPreds []predicate.Predicate
 	reconcilerOpts               []ReconcilerOpt
@@ -384,6 +399,14 @@ func (b *ReconcilerBuilder[T]) Owns(object client.Object, opts ...WatchOpts) *Re
 		return b
 	}
 
+	if b.isUnownableGVK(u.GroupVersionKind()) {
+		b.errors = multierror.Append(b.errors, fmt.Errorf(
+			"Owns: %s must not be registered as an owned type: the deploy action never sets controller owner references on it, "+
+				"so it would neither be owned nor receive owner-routed watch events; use Watches() to watch it instead",
+			u.GroupVersionKind()))
+		return b
+	}
+
 	in := watchInput{}
 	in.object = u
 	in.owned = true
@@ -439,6 +462,22 @@ func (b *ReconcilerBuilder[T]) ComposeWith(fn func(*ReconcilerBuilder[T])) *Reco
 // OwnsGVK registers a watch for owned resources identified by GVK.
 func (b *ReconcilerBuilder[T]) OwnsGVK(gvk schema.GroupVersionKind, opts ...WatchOpts) *ReconcilerBuilder[T] {
 	return b.Owns(resources.GvkToUnstructured(gvk), opts...)
+}
+
+// WithUnownableGVKs registers additional GVKs that Owns()/OwnsGVK() must
+// reject, on top of the defaults (Namespace, CustomResourceDefinition).
+// Module authors use it to declare kinds of their own that must never
+// receive a controller owner reference. The list is extend-only: the
+// defaults cannot be removed.
+func (b *ReconcilerBuilder[T]) WithUnownableGVKs(gvks ...schema.GroupVersionKind) *ReconcilerBuilder[T] {
+	b.unownableGVKs = append(b.unownableGVKs, gvks...)
+	return b
+}
+
+// isUnownableGVK reports whether the GVK must never be registered as an
+// owned type, either by default or via WithUnownableGVKs.
+func (b *ReconcilerBuilder[T]) isUnownableGVK(g schema.GroupVersionKind) bool {
+	return slices.Contains(defaultUnownableGVKs, g) || slices.Contains(b.unownableGVKs, g)
 }
 
 func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {

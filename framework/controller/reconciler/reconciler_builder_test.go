@@ -7,10 +7,13 @@ import (
 	"testing"
 
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster/gvk"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/types"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/resources"
 
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
 func TestReconcilerBuilder_ComposeWith(t *testing.T) {
@@ -150,5 +153,68 @@ func TestWithConditionAggregator(t *testing.T) {
 		reconciler := &Reconciler{}
 		opt(reconciler)
 		g.Expect(reconciler.conditionsAggregator).To(BeIdenticalTo(aggregator))
+	})
+}
+
+func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Owns on a Namespace surfaces a build error", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.Owns(resources.GvkToUnstructured(gvk.Namespace))
+
+		g.Expect(b.errors).To(HaveOccurred())
+		g.Expect(b.errors.Error()).To(ContainSubstring("Namespace"))
+		g.Expect(b.errors.Error()).To(ContainSubstring("Watches"))
+		_, err := b.Build(context.Background())
+		g.Expect(err).To(MatchError(ContainSubstring("must not be registered as an owned type")))
+	})
+
+	t.Run("OwnsGVK on a CustomResourceDefinition surfaces a build error", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.OwnsGVK(gvk.CustomResourceDefinition)
+
+		g.Expect(b.errors).To(HaveOccurred())
+		g.Expect(b.errors.Error()).To(ContainSubstring("CustomResourceDefinition"))
+		_, err := b.Build(context.Background())
+		g.Expect(err).To(MatchError(ContainSubstring("must not be registered as an owned type")))
+	})
+
+	t.Run("Owns on an ordinary GVK records no error", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.Owns(resources.GvkToUnstructured(gvk.Deployment), WithEventHandler(handler.Funcs{}))
+
+		g.Expect(b.errors).ToNot(HaveOccurred())
+	})
+
+	t.Run("WithUnownableGVKs extends the rejected set", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithUnownableGVKs(gvk.Secret)
+		b.Owns(resources.GvkToUnstructured(gvk.Secret), WithEventHandler(handler.Funcs{}))
+
+		g.Expect(b.errors).To(HaveOccurred())
+		g.Expect(b.errors.Error()).To(ContainSubstring("Secret"))
+	})
+
+	t.Run("Watches on a Namespace records no error", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.Watches(resources.GvkToUnstructured(gvk.Namespace), WithEventHandler(handler.Funcs{}))
+
+		g.Expect(b.errors).ToNot(HaveOccurred())
 	})
 }
