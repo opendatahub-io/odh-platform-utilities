@@ -63,6 +63,8 @@ pkg/
   cluster/         Singleton enforcement, metadata options, dynamic ownership
                    (GetSingleton[T], MetaOptions, OwnerRefFrom, ControlledBy,
                    OwnedBy, WithOwnerAnnotations, EnqueueByOwnerAnnotation).
+  claim/           Optional bounded waits for DatabaseClaim and SchemaClaim
+                   Provisioned conditions.
   status/          Safe status subresource updates with automatic conflict
                    retry (Update[T]).
   deploy/          Resource deployment utilities: SSA/patch deploy with
