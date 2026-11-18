@@ -158,10 +158,12 @@ func (p Params) Validate() error {
 }
 
 func validateHost(p Params) error {
-	// Claim Secrets are single-host; reject multi-host lists and URL delimiters
-	// so Connect cannot fall back to a host without claim-CA TLSConfig, and so
-	// JDBC cannot treat path/query fragments in host as database/query params.
-	if strings.ContainsAny(p.Host, ",/?#@&") {
+	// Claim Secrets are single-host; reject multi-host lists, brackets, and URL
+	// delimiters so Connect cannot fall back to a host without claim-CA
+	// TLSConfig, JDBC cannot treat path/query fragments as params, and pgx
+	// cannot strip [hostname] brackets and dial the inner name. Bare IPv6
+	// (e.g. ::1) stays unbracketed; JoinHostPort adds brackets when needed.
+	if strings.ContainsAny(p.Host, ",/?#@&[]") {
 		return fmt.Errorf("invalid %s: must be a single host without URL delimiters: %w",
 			SecretKeyHost, ErrInvalidHost)
 	}

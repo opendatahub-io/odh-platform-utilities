@@ -225,6 +225,7 @@ func TestParseSecretData_InvalidHostRejected(t *testing.T) {
 		"127.0.0.1:5432",
 		"[::1]:5432",
 		"[::1]",
+		"[db.example.test]",
 	} {
 		t.Run(host, func(t *testing.T) {
 			t.Parallel()

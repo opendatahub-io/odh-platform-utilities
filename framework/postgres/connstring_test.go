@@ -113,6 +113,33 @@ func TestJDBC_IncludesCurrentSchema(t *testing.T) {
 	assert.Contains(t, s, "currentSchema=claim_abc")
 	assert.Contains(t, s, "user=app")
 	assert.Contains(t, s, "sslmode=disable")
+	assert.NotContains(t, s, "gssEncMode=")
+}
+
+func TestJDBC_GSSEncModeOnlyWhenTLSRequired(t *testing.T) {
+	t.Parallel()
+
+	empty := baseParams()
+	empty.SSLMode = ""
+	sEmpty, err := empty.JDBC("")
+	require.NoError(t, err)
+	assert.NotContains(t, sEmpty, "gssEncMode=")
+	assert.NotContains(t, sEmpty, "sslmode=")
+
+	requireMode := baseParams()
+	requireMode.SSLMode = postgres.SSLModeRequire
+	sRequire, err := requireMode.JDBC("")
+	require.NoError(t, err)
+	assert.Contains(t, sRequire, "sslmode=require")
+	assert.Contains(t, sRequire, "gssEncMode=disable")
+
+	verify := baseParams()
+	verify.SSLMode = postgres.SSLModeVerifyFull
+	verify.CACert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+	sVerify, err := verify.JDBC("/tmp/ca.crt")
+	require.NoError(t, err)
+	assert.Contains(t, sVerify, "sslmode=verify-full")
+	assert.Contains(t, sVerify, "gssEncMode=disable")
 }
 
 func TestJDBC_BracketsIPv6Host(t *testing.T) {
@@ -146,6 +173,7 @@ func TestJDBC_SSLRootCertForVerifyModes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, s, "sslrootcert=")
 	assert.Contains(t, s, "%2Fetc%2Fdb-trust%2Fca.crt") // url.Values encodes the path
+	assert.Contains(t, s, "gssEncMode=disable")
 }
 
 func TestRequireWithCA_PromotesAcrossAPIs(t *testing.T) {
@@ -165,6 +193,7 @@ func TestRequireWithCA_PromotesAcrossAPIs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, jdbc, "sslmode=verify-ca")
 	assert.Contains(t, jdbc, "sslrootcert=")
+	assert.Contains(t, jdbc, "gssEncMode=disable")
 
 	path, cleanup, err := p.WriteCACert(t.TempDir())
 	require.NoError(t, err)

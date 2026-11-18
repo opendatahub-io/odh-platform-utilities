@@ -107,6 +107,12 @@ func (p Params) jdbc(caFile string) string {
 	mode := p.effectiveSSLMode()
 	if mode != "" {
 		q.Set(SecretKeySSLMode, mode)
+		// Keep TLS + claim CA in force: pgJDBC gssEncMode=prefer can skip TLS
+		// (and sslrootcert checks) when Kerberos succeeds. Omitted sslmode is
+		// left unchanged.
+		if mode != SSLModeDisable {
+			q.Set("gssEncMode", "disable")
+		}
 	}
 
 	if caFile != "" && p.needsCAFile() {

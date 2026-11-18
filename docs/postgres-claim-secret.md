@@ -64,7 +64,10 @@ defer conn.Close(ctx)
 Path-based drivers cannot use PEM from the Secret; they need a CA file.
 `WriteCACert` writes one under `dir` (or the system temp dir when `dir` is
 empty) when the sslmode requires it. Otherwise the path is empty and cleanup
-is a no-op. Always call cleanup so a temp CA file is not left on disk.
+is a no-op. For a sidecar (or any other container) that opens the connection,
+pass a shared volume path both containers can read—not the caller’s temp dir.
+Call cleanup only after drivers using that string have finished connecting
+(`sslrootcert` is read at connect time), so the temp file is not left on disk.
 
 Pass that path into `Libpq` or `JDBC` even when it is empty. An empty path is
 rejected for `verify-ca`, `verify-full`, and `require` with CA so
