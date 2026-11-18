@@ -61,13 +61,10 @@ func (p Params) WriteCACert(dir string) (path string, cleanup func(), err error)
 	return path, cleanup, nil
 }
 
-// TLSConfig builds a *tls.Config from Params for verified PostgreSQL
-// connections. Semantics match opendatahub-db-operator's runtimeTLSConfig:
-// require with a CA is treated like verify-ca; verify-ca checks the chain
-// without hostname; verify-full sets ServerName to the host.
-//
-// SSLMode must be set explicitly; empty sslmode is rejected. Returns (nil, nil)
-// when sslmode is disable.
+// TLSConfig builds a *tls.Config matching db-operator/libpq: require alone
+// encrypts without peer auth; require+CA promotes to verify-ca; verify-ca checks
+// chain only; verify-full also checks hostname. Empty sslmode is rejected.
+// Returns (nil, nil) for disable.
 func (p Params) TLSConfig() (*tls.Config, error) {
 	err := p.Validate()
 	if err != nil {
@@ -116,8 +113,8 @@ func applySSLMode(cfg *tls.Config, mode string) {
 		cfg.InsecureSkipVerify = false
 		cfg.VerifyPeerCertificate = nil
 	case SSLModeRequire:
-		// Encrypt without a caller-supplied CA; hostname/chain verify is not possible.
-		// nosemgrep: go-tls-bypass -- sslmode=require without a CA cannot verify peers.
+		// Libpq require without CA: encrypt only (require+CA is promoted earlier).
+		// nosemgrep: go-tls-bypass -- intentional libpq require; no peer verify without CA.
 		cfg.InsecureSkipVerify = true
 		cfg.VerifyPeerCertificate = nil
 	}

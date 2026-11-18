@@ -59,15 +59,27 @@ func TestLibpq_SSLRootCertForVerifyModes(t *testing.T) {
 	assert.NotContains(t, sDisable, "sslrootcert=")
 }
 
-func TestLibpq_OmitsSSLRootCertWhenPathEmpty(t *testing.T) {
+func TestLibpq_EmptyCAFileRejectedWhenNeeded(t *testing.T) {
 	t.Parallel()
 
 	p := baseParams()
 	p.SSLMode = postgres.SSLModeVerifyCA
 	p.CACert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
-	s, err := p.Libpq("")
-	require.NoError(t, err)
-	assert.NotContains(t, s, "sslrootcert=")
+	_, err := p.Libpq("")
+	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrCARequired)
+	assert.Contains(t, err.Error(), "WriteCACert")
+}
+
+func TestJDBC_EmptyCAFileRejectedWhenNeeded(t *testing.T) {
+	t.Parallel()
+
+	p := baseParams()
+	p.SSLMode = postgres.SSLModeVerifyFull
+	p.CACert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+	_, err := p.JDBC("")
+	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrCARequired)
 }
 
 func TestJDBC_IncludesCurrentSchema(t *testing.T) {
@@ -81,6 +93,27 @@ func TestJDBC_IncludesCurrentSchema(t *testing.T) {
 	assert.Contains(t, s, "currentSchema=claim_abc")
 	assert.Contains(t, s, "user=app")
 	assert.Contains(t, s, "sslmode=disable")
+}
+
+func TestJDBC_BracketsIPv6Host(t *testing.T) {
+	t.Parallel()
+
+	p := baseParams()
+	p.Host = "::1"
+	s, err := p.JDBC("")
+	require.NoError(t, err)
+	assert.Contains(t, s, "jdbc:postgresql://[::1]:5432/appdb?")
+}
+
+func TestJDBC_EncodesPlusInDBName(t *testing.T) {
+	t.Parallel()
+
+	p := baseParams()
+	p.DBName = "app+analytics"
+	s, err := p.JDBC("")
+	require.NoError(t, err)
+	assert.Contains(t, s, "jdbc:postgresql://db.example.test:5432/app%2Banalytics?")
+	assert.NotContains(t, s, "/app+analytics?")
 }
 
 func TestJDBC_SSLRootCertForVerifyModes(t *testing.T) {

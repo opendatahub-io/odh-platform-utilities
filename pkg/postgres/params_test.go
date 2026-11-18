@@ -83,8 +83,20 @@ func TestParseSecretData_InvalidPort(t *testing.T) {
 	data[postgres.SecretKeyPort] = []byte("notanumber")
 	_, err := postgres.ParseSecretData(data)
 	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrInvalidPort)
 	assert.Contains(t, err.Error(), postgres.SecretKeyPort)
 	assert.NotContains(t, err.Error(), "s3cret")
+}
+
+func TestParseSecretData_PortOverflow(t *testing.T) {
+	t.Parallel()
+
+	data := validSecretData()
+	data[postgres.SecretKeyPort] = []byte("99999999999999999999")
+	_, err := postgres.ParseSecretData(data)
+	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrInvalidPort)
+	assert.Contains(t, err.Error(), postgres.SecretKeyPort)
 }
 
 func TestParseSecretData_PortOutOfRange(t *testing.T) {
@@ -94,6 +106,7 @@ func TestParseSecretData_PortOutOfRange(t *testing.T) {
 	data[postgres.SecretKeyPort] = []byte("0")
 	_, err := postgres.ParseSecretData(data)
 	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrInvalidPort)
 	assert.Contains(t, err.Error(), postgres.SecretKeyPort)
 }
 
@@ -129,6 +142,49 @@ func TestParseSecretData_UnsupportedSSLMode(t *testing.T) {
 	_, err := postgres.ParseSecretData(data)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), postgres.SecretKeySSLMode)
+}
+
+func TestParseSecretData_InvalidSchemaRejected(t *testing.T) {
+	t.Parallel()
+
+	for _, schema := range []string{
+		"claim_a -crole=admin",
+		"claim_a,public",
+		"claim-abc",
+	} {
+		t.Run(schema, func(t *testing.T) {
+			t.Parallel()
+
+			data := validSecretData()
+			data[postgres.SecretKeySchema] = []byte(schema)
+			_, err := postgres.ParseSecretData(data)
+			require.Error(t, err)
+			require.ErrorIs(t, err, postgres.ErrInvalidSchema)
+			assert.Contains(t, err.Error(), postgres.SecretKeySchema)
+			assert.NotContains(t, err.Error(), "s3cret")
+		})
+	}
+}
+
+func TestParseSecretData_EmptySchemaAllowed(t *testing.T) {
+	t.Parallel()
+
+	data := validSecretData()
+	delete(data, postgres.SecretKeySchema)
+	p, err := postgres.ParseSecretData(data)
+	require.NoError(t, err)
+	assert.Empty(t, p.Schema)
+}
+
+func TestParseSecretData_MultiHostRejected(t *testing.T) {
+	t.Parallel()
+
+	data := validSecretData()
+	data[postgres.SecretKeyHost] = []byte("a.example.test,b.example.test")
+	_, err := postgres.ParseSecretData(data)
+	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrInvalidHost)
+	assert.Contains(t, err.Error(), postgres.SecretKeyHost)
 }
 
 func TestParseClaimSecret_Annotation(t *testing.T) {

@@ -3,7 +3,9 @@ package postgres
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -29,6 +31,14 @@ var (
 	// ErrInvalidConnectionType is returned when the connection-type annotation is present
 	// but is not postgres.
 	ErrInvalidConnectionType = errors.New("invalid connection-type annotation")
+	// ErrInvalidSchema is returned when schema is not a single unquoted identifier.
+	ErrInvalidSchema = errors.New("invalid schema")
+	// ErrInvalidHost is returned when host is not a single host (e.g. comma-separated).
+	ErrInvalidHost = errors.New("invalid host")
+
+	// schemaPattern restricts Schema to one PostgreSQL-style unquoted identifier
+	// so it cannot inject libpq options (-c…) or widen search_path via commas.
+	schemaPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`)
 )
 
 // Params holds the discrete claim-Secret connection fields.
@@ -68,7 +78,7 @@ func ParseSecretData(data map[string][]byte) (Params, error) {
 	if raw, ok := data[SecretKeyPort]; ok && len(raw) > 0 {
 		port, err := strconv.Atoi(string(raw))
 		if err != nil {
-			return p, fmt.Errorf("invalid %s: %w", SecretKeyPort, err)
+			return p, fmt.Errorf("invalid %s: %w: %w", SecretKeyPort, err, ErrInvalidPort)
 		}
 
 		p.Port = port
@@ -100,10 +110,11 @@ func ParseClaimSecret(secret *corev1.Secret) (Params, error) {
 	return ParseSecretData(secret.Data)
 }
 
-// Validate checks required fields, port range, sslmode, and TLS trust readiness
-// for verify modes. Empty sslmode is allowed here so administrator-authored
-// Secrets can omit it; callers must set an explicit default before TLSConfig
-// or framework Connect. Errors name Secret keys and never include the password value.
+// Validate checks required fields, port range, sslmode, schema identifier shape,
+// and TLS trust readiness for verify modes. Empty sslmode is allowed here so
+// administrator-authored Secrets can omit it; callers must set an explicit
+// default before TLSConfig or framework Connect. Empty schema is allowed.
+// Errors name Secret keys and never include the password value.
 func (p Params) Validate() error {
 	for _, field := range [...]struct {
 		key     string
@@ -119,10 +130,34 @@ func (p Params) Validate() error {
 		}
 	}
 
+	err := validateHost(p)
+	if err != nil {
+		return err
+	}
+
 	if p.Port <= 0 || p.Port > 65535 {
 		return fmt.Errorf("invalid %s: must be a port number 1-65535, got %d: %w", SecretKeyPort, p.Port, ErrInvalidPort)
 	}
 
+	err = validateSSLMode(p)
+	if err != nil {
+		return err
+	}
+
+	return validateSchema(p)
+}
+
+func validateHost(p Params) error {
+	// Claim Secrets are single-host; reject libpq/pgx multi-host lists so
+	// Connect cannot fall back to a host without claim-CA TLSConfig.
+	if strings.Contains(p.Host, ",") {
+		return fmt.Errorf("invalid %s: multi-host values are not supported: %w", SecretKeyHost, ErrInvalidHost)
+	}
+
+	return nil
+}
+
+func validateSSLMode(p Params) error {
 	switch p.SSLMode {
 	case "", SSLModeDisable, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
 	default:
@@ -131,6 +166,14 @@ func (p Params) Validate() error {
 
 	if (p.SSLMode == SSLModeVerifyCA || p.SSLMode == SSLModeVerifyFull) && p.CACert == "" {
 		return fmt.Errorf("%s %q requires key %q: %w", SecretKeySSLMode, p.SSLMode, SecretKeyCA, ErrCARequired)
+	}
+
+	return nil
+}
+
+func validateSchema(p Params) error {
+	if p.Schema != "" && !schemaPattern.MatchString(p.Schema) {
+		return fmt.Errorf("invalid %s: must be a single identifier: %w", SecretKeySchema, ErrInvalidSchema)
 	}
 
 	return nil

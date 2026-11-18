@@ -40,6 +40,11 @@ func Connect(ctx context.Context, p pkgpostgres.Params) (*pgx.Conn, error) {
 			return nil, tlsErr
 		}
 
+		// Keep ALPN from ParseConfig (e.g. sslnegotiation=direct needs "postgresql").
+		if cfg.TLSConfig != nil && len(cfg.TLSConfig.NextProtos) > 0 {
+			tlsConfig.NextProtos = append([]string(nil), cfg.TLSConfig.NextProtos...)
+		}
+
 		cfg.TLSConfig = tlsConfig
 	}
 
@@ -62,16 +67,16 @@ func Connect(ctx context.Context, p pkgpostgres.Params) (*pgx.Conn, error) {
 func pgxDSN(p pkgpostgres.Params) string {
 	q := url.Values{}
 	q.Set(pkgpostgres.SecretKeySSLMode, p.SSLMode)
-
-	if p.Schema != "" {
-		q.Set("options", "-csearch_path="+p.Schema)
-	}
+	// Override PGSSLROOTCERT so a missing ambient file cannot fail ParseConfig
+	// before Params.TLSConfig applies the claim Secret CA.
+	q.Set("sslrootcert", "")
 
 	u := url.URL{
-		Scheme:   "postgres",
-		User:     url.User(p.User),
-		Host:     net.JoinHostPort(p.Host, strconv.Itoa(p.Port)),
-		Path:     p.DBName,
+		Scheme: "postgres",
+		User:   url.User(p.User),
+		Host:   net.JoinHostPort(p.Host, strconv.Itoa(p.Port)),
+		// Leading slash keeps the path separator distinct from DBName (e.g. "/reports").
+		Path:     "/" + p.DBName,
 		RawQuery: q.Encode(),
 	}
 

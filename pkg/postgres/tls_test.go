@@ -17,7 +17,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type testCA struct {
+	cert *x509.Certificate
+	key  *ecdsa.PrivateKey
+	pem  string
+}
+
 func mustGenerateTestCA(t *testing.T) string {
+	t.Helper()
+	return mustGenerateCA(t).pem
+}
+
+func mustGenerateCA(t *testing.T) testCA {
 	t.Helper()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -35,7 +46,35 @@ func mustGenerateTestCA(t *testing.T) string {
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	require.NoError(t, err)
 
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+
+	return testCA{
+		cert: cert,
+		key:  key,
+		pem:  string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+	}
+}
+
+func mustIssueLeaf(t *testing.T, ca testCA, dnsNames []string, notBefore, notAfter time.Time) []byte {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "leaf"},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     dnsNames,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
+	require.NoError(t, err)
+
+	return der
 }
 
 func TestWriteCACert_NoopWhenDisable(t *testing.T) {
@@ -113,6 +152,52 @@ func TestTLSConfig_VerifyCA(t *testing.T) {
 	assert.True(t, cfg.InsecureSkipVerify)
 	assert.NotNil(t, cfg.VerifyPeerCertificate)
 	assert.NotNil(t, cfg.RootCAs)
+}
+
+func TestTLSConfig_VerifyCA_VerifyPeerCertificate(t *testing.T) {
+	t.Parallel()
+
+	ca := mustGenerateCA(t)
+	otherCA := mustGenerateCA(t)
+
+	p := baseParams()
+	p.SSLMode = postgres.SSLModeVerifyCA
+	p.CACert = ca.pem
+
+	cfg, err := p.TLSConfig()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.NotNil(t, cfg.VerifyPeerCertificate)
+
+	now := time.Now()
+	validLeaf := mustIssueLeaf(t, ca, []string{p.Host}, now.Add(-time.Hour), now.Add(24*time.Hour))
+	foreignLeaf := mustIssueLeaf(t, otherCA, []string{p.Host}, now.Add(-time.Hour), now.Add(24*time.Hour))
+	expiredLeaf := mustIssueLeaf(t, ca, []string{p.Host}, now.Add(-48*time.Hour), now.Add(-24*time.Hour))
+	mismatchedHostLeaf := mustIssueLeaf(t, ca, []string{"other.example.test"}, now.Add(-time.Hour), now.Add(24*time.Hour))
+
+	t.Run("trusted leaf", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, cfg.VerifyPeerCertificate([][]byte{validLeaf}, nil))
+	})
+	t.Run("foreign CA", func(t *testing.T) {
+		t.Parallel()
+		require.Error(t, cfg.VerifyPeerCertificate([][]byte{foreignLeaf}, nil))
+	})
+	t.Run("expired leaf", func(t *testing.T) {
+		t.Parallel()
+		require.Error(t, cfg.VerifyPeerCertificate([][]byte{expiredLeaf}, nil))
+	})
+	t.Run("empty chain", func(t *testing.T) {
+		t.Parallel()
+
+		err := cfg.VerifyPeerCertificate(nil, nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, postgres.ErrNoServerCertificates)
+	})
+	t.Run("hostname mismatch allowed", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, cfg.VerifyPeerCertificate([][]byte{mismatchedHostLeaf}, nil))
+	})
 }
 
 func TestTLSConfig_InvalidPEM(t *testing.T) {

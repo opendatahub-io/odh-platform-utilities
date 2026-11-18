@@ -3,6 +3,7 @@ package postgres
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -22,12 +23,20 @@ const (
 )
 
 // ConnectionString composes a driver-specific connection string.
-// The returned string contains the password in plaintext; callers must not
-// log or persist it.
+// For verify-ca, verify-full, or require with CA material, caFile must be a
+// path from WriteCACert (or equivalent); an empty path is rejected so
+// sslrootcert is not silently omitted. The returned string contains the
+// password in plaintext; callers must not log or persist it. JDBC URLs also
+// embed the password as a query param; pgJDBC may log that URL at FINE.
 func (p Params) ConnectionString(driver Driver, caFile string) (string, error) {
 	err := p.Validate()
 	if err != nil {
 		return "", err
+	}
+
+	if p.needsCAFile() && caFile == "" {
+		return "", fmt.Errorf("%s %q requires a CA file path (use WriteCACert): %w",
+			SecretKeySSLMode, p.effectiveSSLMode(), ErrCARequired)
 	}
 
 	switch driver {
@@ -41,15 +50,15 @@ func (p Params) ConnectionString(driver Driver, caFile string) (string, error) {
 }
 
 // Libpq is shorthand for ConnectionString(DriverLibpq, caFile).
-// The returned string contains the password in plaintext; callers must not
-// log or persist it.
+// See ConnectionString for caFile rules. The returned string contains the
+// password in plaintext; callers must not log or persist it.
 func (p Params) Libpq(caFile string) (string, error) {
 	return p.ConnectionString(DriverLibpq, caFile)
 }
 
 // JDBC is shorthand for ConnectionString(DriverJDBC, caFile).
-// The returned string contains the password in plaintext; callers must not
-// log or persist it.
+// See ConnectionString for caFile rules. The URL includes password as a query
+// param; avoid FINE logging of org.postgresql (pgJDBC logs the connect URL).
 func (p Params) JDBC(caFile string) (string, error) {
 	return p.ConnectionString(DriverJDBC, caFile)
 }
@@ -81,7 +90,10 @@ func (p Params) libpq(caFile string) string {
 }
 
 func (p Params) jdbc(caFile string) string {
-	base := fmt.Sprintf("jdbc:postgresql://%s:%d/%s", p.Host, p.Port, url.PathEscape(p.DBName))
+	// PathEscape leaves '+' intact; pgJDBC form-decodes '+' as space, so encode as %2B.
+	dbPath := strings.ReplaceAll(url.PathEscape(p.DBName), "+", "%2B")
+	base := fmt.Sprintf("jdbc:postgresql://%s/%s",
+		net.JoinHostPort(p.Host, strconv.Itoa(p.Port)), dbPath)
 	q := url.Values{}
 	q.Set("user", p.User)
 	q.Set("password", p.Password)
