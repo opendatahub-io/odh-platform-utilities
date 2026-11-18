@@ -222,6 +222,25 @@ func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
 		g.Expect(b.errors.Error()).To(ContainSubstring("Secret"))
 	})
 
+	t.Run("defaults remain rejected alongside custom unownable GVKs", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Extend-only: registering custom unownable GVKs must not
+		// shadow the defaults — Namespace and CustomResourceDefinition
+		// stay rejected however the option is used.
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithUnownableGVKs(gvk.Secret)
+		b.Owns(resources.GvkToUnstructured(gvk.Namespace), WithEventHandler(handler.Funcs{}))
+		b.Owns(resources.GvkToUnstructured(gvk.CustomResourceDefinition), WithEventHandler(handler.Funcs{}))
+		b.Owns(resources.GvkToUnstructured(gvk.Secret), WithEventHandler(handler.Funcs{}))
+
+		g.Expect(b.errors).To(HaveOccurred())
+		g.Expect(b.errors.Error()).To(ContainSubstring("Namespace"))
+		g.Expect(b.errors.Error()).To(ContainSubstring("CustomResourceDefinition"))
+		g.Expect(b.errors.Error()).To(ContainSubstring("Secret"))
+	})
+
 	t.Run("WithUnownableGVKs after Owns still fails the build", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
