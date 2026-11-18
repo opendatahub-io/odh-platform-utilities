@@ -3,7 +3,7 @@ package postgres_test
 import (
 	"testing"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/postgres"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -176,15 +176,28 @@ func TestParseSecretData_EmptySchemaAllowed(t *testing.T) {
 	assert.Empty(t, p.Schema)
 }
 
-func TestParseSecretData_MultiHostRejected(t *testing.T) {
+func TestParseSecretData_InvalidHostRejected(t *testing.T) {
 	t.Parallel()
 
-	data := validSecretData()
-	data[postgres.SecretKeyHost] = []byte("a.example.test,b.example.test")
-	_, err := postgres.ParseSecretData(data)
-	require.Error(t, err)
-	require.ErrorIs(t, err, postgres.ErrInvalidHost)
-	assert.Contains(t, err.Error(), postgres.SecretKeyHost)
+	for _, host := range []string{
+		"a.example.test,b.example.test",
+		"db.example.test/x?foo=bar&",
+		"db.example.test/extra",
+		"db.example.test?sslmode=disable",
+		"user@db.example.test",
+	} {
+		t.Run(host, func(t *testing.T) {
+			t.Parallel()
+
+			data := validSecretData()
+			data[postgres.SecretKeyHost] = []byte(host)
+			_, err := postgres.ParseSecretData(data)
+			require.Error(t, err)
+			require.ErrorIs(t, err, postgres.ErrInvalidHost)
+			assert.Contains(t, err.Error(), postgres.SecretKeyHost)
+			assert.NotContains(t, err.Error(), "s3cret")
+		})
+	}
 }
 
 func TestParseClaimSecret_Annotation(t *testing.T) {

@@ -47,8 +47,6 @@ linters:
           list-mode: lax
           files:
             - $all
-          allow:
-            - github.com/opendatahub-io/odh-platform-utilities/pkg/postgres
           deny:
             - pkg: github.com/opendatahub-io/odh-platform-utilities/pkg/
               desc: use framework-local packages instead of root pkg/*

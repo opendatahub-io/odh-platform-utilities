@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/postgres"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

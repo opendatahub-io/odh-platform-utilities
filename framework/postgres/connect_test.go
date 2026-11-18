@@ -12,8 +12,7 @@ import (
 	"testing"
 	"time"
 
-	fwkpostgres "github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
-	pkgpostgres "github.com/opendatahub-io/odh-platform-utilities/pkg/postgres"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,64 +20,64 @@ import (
 func TestConnect_ValidateBeforeDial(t *testing.T) {
 	t.Parallel()
 
-	p := pkgpostgres.Params{
-		Port:     pkgpostgres.DefaultPort,
+	p := postgres.Params{
+		Port:     postgres.DefaultPort,
 		User:     "app",
 		Password: "s3cret",
 		DBName:   "appdb",
-		SSLMode:  pkgpostgres.SSLModeDisable,
+		SSLMode:  postgres.SSLModeDisable,
 	}
-	_, err := fwkpostgres.Connect(t.Context(), p)
+	_, err := postgres.Connect(t.Context(), p)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), pkgpostgres.SecretKeyHost)
+	assert.Contains(t, err.Error(), postgres.SecretKeyHost)
 }
 
 func TestConnect_EmptySSLModeRejected(t *testing.T) {
 	t.Parallel()
 
-	p := pkgpostgres.Params{
+	p := postgres.Params{
 		Host:     "db.example.test",
-		Port:     pkgpostgres.DefaultPort,
+		Port:     postgres.DefaultPort,
 		User:     "app",
 		Password: "s3cret",
 		DBName:   "appdb",
 	}
-	_, err := fwkpostgres.Connect(t.Context(), p)
+	_, err := postgres.Connect(t.Context(), p)
 	require.Error(t, err)
-	require.ErrorIs(t, err, pkgpostgres.ErrSSLModeRequired)
+	require.ErrorIs(t, err, postgres.ErrSSLModeRequired)
 }
 
 func TestConnect_InvalidCACertRejectedBeforeDial(t *testing.T) {
 	t.Parallel()
 
-	p := pkgpostgres.Params{
+	p := postgres.Params{
 		Host:     "db.example.test",
-		Port:     pkgpostgres.DefaultPort,
+		Port:     postgres.DefaultPort,
 		User:     "app",
 		Password: "s3cret",
 		DBName:   "appdb",
-		SSLMode:  pkgpostgres.SSLModeVerifyFull,
+		SSLMode:  postgres.SSLModeVerifyFull,
 		CACert:   "not-a-pem",
 	}
-	_, err := fwkpostgres.Connect(t.Context(), p)
+	_, err := postgres.Connect(t.Context(), p)
 	require.Error(t, err)
-	require.ErrorIs(t, err, pkgpostgres.ErrInvalidCACert)
+	require.ErrorIs(t, err, postgres.ErrInvalidCACert)
 }
 
 func TestConnect_IgnoresMissingPGSSLROOTCERT(t *testing.T) {
 	// Not parallel: t.Setenv affects process env for this test.
 	t.Setenv("PGSSLROOTCERT", "/nonexistent/odh-claim-ca.crt")
 
-	p := pkgpostgres.Params{
+	p := postgres.Params{
 		Host:     "db.example.test",
-		Port:     pkgpostgres.DefaultPort,
+		Port:     postgres.DefaultPort,
 		User:     "app",
 		Password: "s3cret",
 		DBName:   "appdb",
-		SSLMode:  pkgpostgres.SSLModeVerifyFull,
+		SSLMode:  postgres.SSLModeVerifyFull,
 		CACert:   mustConnectTestCA(t),
 	}
-	_, err := fwkpostgres.Connect(t.Context(), p)
+	_, err := postgres.Connect(t.Context(), p)
 	require.Error(t, err)
 	// ParseConfig must not fail on the missing ambient file; claim CA is used instead.
 	assert.NotContains(t, err.Error(), "unable to read CA file")
@@ -89,18 +88,18 @@ func TestConnect_IgnoresMissingPGSSLROOTCERT(t *testing.T) {
 func TestConnect_InvalidClaimCAStillRejectedWithPGSSLROOTCERT(t *testing.T) {
 	t.Setenv("PGSSLROOTCERT", "/nonexistent/odh-claim-ca.crt")
 
-	p := pkgpostgres.Params{
+	p := postgres.Params{
 		Host:     "db.example.test",
-		Port:     pkgpostgres.DefaultPort,
+		Port:     postgres.DefaultPort,
 		User:     "app",
 		Password: "s3cret",
 		DBName:   "appdb",
-		SSLMode:  pkgpostgres.SSLModeVerifyFull,
+		SSLMode:  postgres.SSLModeVerifyFull,
 		CACert:   "not-a-pem",
 	}
-	_, err := fwkpostgres.Connect(t.Context(), p)
+	_, err := postgres.Connect(t.Context(), p)
 	require.Error(t, err)
-	require.ErrorIs(t, err, pkgpostgres.ErrInvalidCACert)
+	require.ErrorIs(t, err, postgres.ErrInvalidCACert)
 	assert.NotContains(t, err.Error(), "unable to read CA file")
 }
 

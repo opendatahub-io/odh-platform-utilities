@@ -12,8 +12,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	fwkpostgres "github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
-	pkgpostgres "github.com/opendatahub-io/odh-platform-utilities/pkg/postgres"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -41,23 +40,23 @@ func TestSchemaPlacement_ViaAccessorConnect(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				pkgpostgres.AnnotationConnectionTypeProtocol: pkgpostgres.ConnectionTypeProtocolPostgres,
+				postgres.AnnotationConnectionTypeProtocol: postgres.ConnectionTypeProtocolPostgres,
 			},
 		},
 		Data: map[string][]byte{
-			pkgpostgres.SecretKeyHost:     []byte(host),
-			pkgpostgres.SecretKeyPort:     []byte(strconv.Itoa(port)),
-			pkgpostgres.SecretKeyUser:     []byte("app"),
-			pkgpostgres.SecretKeyPassword: []byte("s3cret"),
-			pkgpostgres.SecretKeyDatabase: []byte("appdb"),
-			pkgpostgres.SecretKeySchema:   []byte(claimSchema),
-			pkgpostgres.SecretKeySSLMode:  []byte(pkgpostgres.SSLModeDisable),
+			postgres.SecretKeyHost:     []byte(host),
+			postgres.SecretKeyPort:     []byte(strconv.Itoa(port)),
+			postgres.SecretKeyUser:     []byte("app"),
+			postgres.SecretKeyPassword: []byte("s3cret"),
+			postgres.SecretKeyDatabase: []byte("appdb"),
+			postgres.SecretKeySchema:   []byte(claimSchema),
+			postgres.SecretKeySSLMode:  []byte(postgres.SSLModeDisable),
 		},
 	}
-	params, err := pkgpostgres.ParseClaimSecret(secret)
+	params, err := postgres.ParseClaimSecret(secret)
 	require.NoError(t, err)
 
-	conn, err := fwkpostgres.Connect(ctx, params)
+	conn, err := postgres.Connect(ctx, params)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 

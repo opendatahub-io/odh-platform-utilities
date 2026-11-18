@@ -23,7 +23,7 @@ var (
 	ErrUnsupportedSSLMode = errors.New("unsupported sslmode")
 	// ErrCARequired is returned when verify-ca or verify-full is set without ca.crt.
 	ErrCARequired = errors.New("sslmode requires ca.crt")
-	// ErrSSLModeRequired is returned by TLSConfig (and framework Connect) when
+	// ErrSSLModeRequired is returned by TLSConfig (and Connect) when
 	// sslmode is empty. Parse/Libpq/JDBC still allow empty sslmode so callers
 	// can apply their own default; opening a live connection must not inherit
 	// pgx's prefer behavior.
@@ -33,7 +33,8 @@ var (
 	ErrInvalidConnectionType = errors.New("invalid connection-type annotation")
 	// ErrInvalidSchema is returned when schema is not a single unquoted identifier.
 	ErrInvalidSchema = errors.New("invalid schema")
-	// ErrInvalidHost is returned when host is not a single host (e.g. comma-separated).
+	// ErrInvalidHost is returned when host is not a single host name or address
+	// (e.g. multi-host lists or URL delimiters that would break JDBC authority).
 	ErrInvalidHost = errors.New("invalid host")
 
 	// schemaPattern restricts Schema to one PostgreSQL-style unquoted identifier
@@ -113,7 +114,7 @@ func ParseClaimSecret(secret *corev1.Secret) (Params, error) {
 // Validate checks required fields, port range, sslmode, schema identifier shape,
 // and TLS trust readiness for verify modes. Empty sslmode is allowed here so
 // administrator-authored Secrets can omit it; callers must set an explicit
-// default before TLSConfig or framework Connect. Empty schema is allowed.
+// default before TLSConfig or Connect. Empty schema is allowed.
 // Errors name Secret keys and never include the password value.
 func (p Params) Validate() error {
 	for _, field := range [...]struct {
@@ -148,10 +149,12 @@ func (p Params) Validate() error {
 }
 
 func validateHost(p Params) error {
-	// Claim Secrets are single-host; reject libpq/pgx multi-host lists so
-	// Connect cannot fall back to a host without claim-CA TLSConfig.
-	if strings.Contains(p.Host, ",") {
-		return fmt.Errorf("invalid %s: multi-host values are not supported: %w", SecretKeyHost, ErrInvalidHost)
+	// Claim Secrets are single-host; reject multi-host lists and URL delimiters
+	// so Connect cannot fall back to a host without claim-CA TLSConfig, and so
+	// JDBC cannot treat path/query fragments in host as database/query params.
+	if strings.ContainsAny(p.Host, ",/?#@&") {
+		return fmt.Errorf("invalid %s: must be a single host without URL delimiters: %w",
+			SecretKeyHost, ErrInvalidHost)
 	}
 
 	return nil

@@ -1,5 +1,4 @@
-// Package postgres opens pgx connections from root pkg/postgres Params.
-// Parse/connstrings/TLSConfig stay in the root module to keep it dependency-light.
+// Package postgres parses claim Secrets and opens pgx connections.
 package postgres
 
 import (
@@ -10,13 +9,12 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
-	pkgpostgres "github.com/opendatahub-io/odh-platform-utilities/pkg/postgres"
 )
 
 // Connect opens a pgx connection using claim-Secret Params. TLS trust is applied
 // via Params.TLSConfig and schema via search_path. SSLMode must be set
 // explicitly; empty sslmode is rejected so pgx cannot fall back to prefer.
-func Connect(ctx context.Context, p pkgpostgres.Params) (*pgx.Conn, error) {
+func Connect(ctx context.Context, p Params) (*pgx.Conn, error) {
 	err := p.Validate()
 	if err != nil {
 		return nil, err
@@ -24,7 +22,7 @@ func Connect(ctx context.Context, p pkgpostgres.Params) (*pgx.Conn, error) {
 
 	if p.SSLMode == "" {
 		return nil, fmt.Errorf("missing or empty key %q in Secret: %w",
-			pkgpostgres.SecretKeySSLMode, pkgpostgres.ErrSSLModeRequired)
+			SecretKeySSLMode, ErrSSLModeRequired)
 	}
 
 	cfg, err := pgx.ParseConfig(pgxDSN(p))
@@ -64,9 +62,9 @@ func Connect(ctx context.Context, p pkgpostgres.Params) (*pgx.Conn, error) {
 	return conn, nil
 }
 
-func pgxDSN(p pkgpostgres.Params) string {
+func pgxDSN(p Params) string {
 	q := url.Values{}
-	q.Set(pkgpostgres.SecretKeySSLMode, p.SSLMode)
+	q.Set(SecretKeySSLMode, p.SSLMode)
 	// Override PGSSLROOTCERT so a missing ambient file cannot fail ParseConfig
 	// before Params.TLSConfig applies the claim Secret CA.
 	q.Set("sslrootcert", "")
