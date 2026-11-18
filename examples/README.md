@@ -14,3 +14,6 @@ go run .
 |---------|-------------|
 | `flakiness-scraper` | Scrapes JUnit XML artifacts from a public OpenShift CI GCS bucket and queries the ingested metrics. |
 | `runtime-budget` | Scrapes JUnit artifacts then runs runtime analysis: top-N slowest tests, suite totals, and timeout budget utilisation. |
+
+For the optional DatabaseClaim and SchemaClaim startup pattern, see
+[Waiting for a database or schema claim](../docs/claim-readiness.md).

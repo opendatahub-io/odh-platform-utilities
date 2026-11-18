@@ -53,6 +53,7 @@ pipeline out of the box.
 | `pkg/cluster` | Cluster type detection, FIPS detection, platform variant detection, CRD existence checks; functional options for labels, annotations, owner references |
 | `pkg/cluster/openshift` | OpenShift-specific queries: version, SNO, auth mode, domain |
 | `pkg/cluster/olm` | OLM-specific queries: operator existence, subscription lookup |
+| `pkg/claim` | Optional bounded readiness waits for `DatabaseClaim` and `SchemaClaim` |
 | `pkg/webhook` | Admission webhook helpers for singleton validation (`ValidateSingletonCreation`) |
 | `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
 | `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
