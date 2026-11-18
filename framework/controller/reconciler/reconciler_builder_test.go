@@ -208,6 +208,46 @@ func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
 		g.Expect(b.errors.Error()).To(ContainSubstring("Secret"))
 	})
 
+	t.Run("WithUnownableGVKs after Owns still fails the build", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Order reversal: the watch is recorded while the GVK is still
+		// allowed, and only afterwards declared unownable. The Owns()-time
+		// check cannot catch this; Build() must.
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.OwnsGVK(gvk.Secret, WithEventHandler(handler.Funcs{}))
+		b.WithUnownableGVKs(gvk.Secret)
+
+		_, err := b.Build(context.Background())
+		g.Expect(err).To(MatchError(ContainSubstring("must not be registered as an owned type")))
+	})
+
+	t.Run("WithUnownableGVKs excludes the GVK from dynamic ownership", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Build() forwards excludeFromOwnership to the runtime ownership
+		// decision; a GVK declared unownable must appear there, or the
+		// dynamic-ownership path would still set a controller owner
+		// reference on it.
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithUnownableGVKs(gvk.Secret)
+
+		g.Expect(b.excludeFromOwnership).To(ContainElement(gvk.Secret))
+	})
+
+	t.Run("rejection message explains the event mapper for kinds without the instance annotation", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.OwnsGVK(gvk.CustomResourceDefinition)
+
+		g.Expect(b.errors).To(HaveOccurred())
+		g.Expect(b.errors.Error()).To(ContainSubstring("event mapper"))
+	})
+
 	t.Run("Watches on a Namespace records no error", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)

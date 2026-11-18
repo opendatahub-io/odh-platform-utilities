@@ -400,10 +400,7 @@ func (b *ReconcilerBuilder[T]) Owns(object client.Object, opts ...WatchOpts) *Re
 	}
 
 	if b.isUnownableGVK(u.GroupVersionKind()) {
-		b.errors = multierror.Append(b.errors, fmt.Errorf(
-			"Owns: %s must not be registered as an owned type: the deploy action never sets controller owner references on it, "+
-				"so it would neither be owned nor receive owner-routed watch events; use Watches() to watch it instead",
-			u.GroupVersionKind()))
+		b.errors = multierror.Append(b.errors, unownableGVKError("Owns", u.GroupVersionKind()))
 		return b
 	}
 
@@ -468,9 +465,17 @@ func (b *ReconcilerBuilder[T]) OwnsGVK(gvk schema.GroupVersionKind, opts ...Watc
 // reject, on top of the defaults (Namespace, CustomResourceDefinition).
 // Module authors use it to declare kinds of their own that must never
 // receive a controller owner reference. The list is extend-only: the
-// defaults cannot be removed.
+// defaults cannot be removed. Declaring a GVK unownable also excludes it
+// from dynamic ownership, so the runtime never sets a controller owner
+// reference on it either; use Watches() (with an explicit event mapper for
+// kinds that do not carry the instance annotation) to watch it.
 func (b *ReconcilerBuilder[T]) WithUnownableGVKs(gvks ...schema.GroupVersionKind) *ReconcilerBuilder[T] {
 	b.unownableGVKs = append(b.unownableGVKs, gvks...)
+	// Declaring a GVK unownable also excludes it from dynamic ownership:
+	// Build() forwards excludeFromOwnership into the runtime ownership
+	// decision, so without this the dynamic-ownership path would still
+	// set a controller owner reference on it.
+	b.excludeFromOwnership = append(b.excludeFromOwnership, gvks...)
 	return b
 }
 
@@ -480,10 +485,33 @@ func (b *ReconcilerBuilder[T]) isUnownableGVK(g schema.GroupVersionKind) bool {
 	return slices.Contains(defaultUnownableGVKs, g) || slices.Contains(b.unownableGVKs, g)
 }
 
+// unownableGVKError builds the rejection message for a GVK that must not be
+// registered as an owned type.
+func unownableGVKError(caller string, g schema.GroupVersionKind) error {
+	return fmt.Errorf(
+		"%s: %s must not be registered as an owned type: it never receives a controller owner reference, "+
+			"so it would neither be owned nor receive owner-routed watch events; "+
+			"use Watches() to watch it instead, providing an event mapper (WithEventMapper) "+
+			"for kinds that do not carry the instance annotation (for example CustomResourceDefinitions)",
+		caller, g)
+}
+
 func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 	if b.errors != nil {
 		return nil, b.errors
 	}
+
+	// Reject unownable owned watches regardless of the order in which
+	// Owns()/OwnsGVK() and WithUnownableGVKs() were called: the Owns()-time
+	// check only sees the unownable set as it stood when the watch was
+	// recorded. Watches recorded via Watches() are not owned and are
+	// unaffected.
+	for _, w := range b.watches {
+		if w.owned && b.isUnownableGVK(w.object.GetObjectKind().GroupVersionKind()) {
+			return nil, unownableGVKError("Build", w.object.GetObjectKind().GroupVersionKind())
+		}
+	}
+
 	name := b.instanceName
 	if name == "" {
 		name = strings.ToLower(b.input.gvk.Kind)
