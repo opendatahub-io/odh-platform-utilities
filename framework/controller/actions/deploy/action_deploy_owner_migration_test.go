@@ -64,6 +64,7 @@ func (s *stubController) GetDynamicClient() dynamic.Interface                   
 func (s *stubController) GetMetadataClient() metadata.Interface                       { return s.metadataClient }
 func (s *stubController) IsDynamicOwnershipEnabled() bool                             { return false }
 func (s *stubController) IsExcludedFromDynamicOwnership(schema.GroupVersionKind) bool { return false }
+func (s *stubController) IsUnownableGVK(schema.GroupVersionKind) bool                 { return false }
 
 // probeDeployment returns an apps/v1 Deployment whose container exposes a
 // metrics port and a health port. The metrics containerPort is an SSA

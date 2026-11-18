@@ -45,6 +45,10 @@ func (c *stubController) IsExcludedFromDynamicOwnership(_ schema.GroupVersionKin
 	return false
 }
 
+func (c *stubController) IsUnownableGVK(_ schema.GroupVersionKind) bool {
+	return false
+}
+
 func TestPreferKubernetesRBACResources_DropsOpenShiftAliasesWhenKubernetesListableAndDeletable(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster/gvk"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/actions/dynamicownership"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
@@ -36,6 +37,19 @@ const (
 
 var (
 	namespaceGVK = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}
+
+	// defaultUnownableGVKs lists the kinds that must never be registered as
+	// statically owned types. The deploy action never sets controller owner
+	// references on them — Namespaces because a controller owner reference
+	// causes cascade deletion of the entire namespace when the CR is deleted,
+	// and CustomResourceDefinitions because they are deployed through a
+	// dedicated path that never sets owner references — so an Owns() watch
+	// for these kinds would silently neither own nor route events. Registering
+	// them fails the reconciliation build instead; use Watches() to watch them.
+	defaultUnownableGVKs = []schema.GroupVersionKind{
+		gvk.Namespace,
+		gvk.CustomResourceDefinition,
+	}
 )
 
 type forInput struct {
@@ -133,6 +147,7 @@ type ReconcilerBuilder[T api.PlatformObject] struct {
 	dependentConditions          []conditions.DependentDefinition
 	dynamicOwnership             bool
 	excludeFromOwnership         []schema.GroupVersionKind
+	unownableGVKs                []schema.GroupVersionKind
 	dynamicOwnershipGVKPreds     map[schema.GroupVersionKind][]predicate.Predicate
 	dynamicOwnershipDefaultPreds []predicate.Predicate
 	reconcilerOpts               []ReconcilerOpt
@@ -384,6 +399,11 @@ func (b *ReconcilerBuilder[T]) Owns(object client.Object, opts ...WatchOpts) *Re
 		return b
 	}
 
+	if b.isUnownableGVK(u.GroupVersionKind()) {
+		b.errors = multierror.Append(b.errors, unownableGVKError("Owns", u.GroupVersionKind()))
+		return b
+	}
+
 	in := watchInput{}
 	in.object = u
 	in.owned = true
@@ -441,10 +461,83 @@ func (b *ReconcilerBuilder[T]) OwnsGVK(gvk schema.GroupVersionKind, opts ...Watc
 	return b.Owns(resources.GvkToUnstructured(gvk), opts...)
 }
 
+// WithUnownableGVKs registers additional GVKs that Owns()/OwnsGVK() must
+// reject, on top of the defaults (Namespace, CustomResourceDefinition).
+// Module authors use it to declare kinds of their own that must never
+// receive a controller owner reference. The list is extend-only: the
+// defaults cannot be removed. Declaring a GVK unownable also excludes it
+// from the runtime ownership decision, however dynamic ownership is
+// enabled; use Watches() (with an explicit event mapper for kinds that do
+// not carry the instance annotation) to watch it.
+func (b *ReconcilerBuilder[T]) WithUnownableGVKs(gvks ...schema.GroupVersionKind) *ReconcilerBuilder[T] {
+	b.unownableGVKs = append(b.unownableGVKs, gvks...)
+	return b
+}
+
+// isUnownableGVK reports whether the GVK must never be registered as an
+// owned type, either by default or via WithUnownableGVKs.
+func (b *ReconcilerBuilder[T]) isUnownableGVK(g schema.GroupVersionKind) bool {
+	return slices.Contains(defaultUnownableGVKs, g) || slices.Contains(b.unownableGVKs, g)
+}
+
+// unownableGVKError builds the rejection message for a GVK that must not be
+// registered as an owned type.
+func unownableGVKError(caller string, g schema.GroupVersionKind) error {
+	return fmt.Errorf(
+		"%s: %s must not be registered as an owned type: it never receives a controller owner reference, "+
+			"so it would neither be owned nor receive owner-routed watch events; "+
+			"use Watches() to watch it instead, providing an event mapper (WithEventMapper) "+
+			"for kinds that do not carry the instance annotation (for example CustomResourceDefinitions) "+
+			"and predicates (WithPredicates) admitting the events of interest "+
+			"(the default predicate ignores create events and requires the part-of label)",
+		caller, g)
+}
+
+// ownershipExclusionOpts returns the reconciler options that wire ownership
+// exclusions into the runtime ownership decision. User-configured
+// dynamic-ownership exclusions are forwarded only when dynamic ownership is
+// enabled on the builder; unownable GVKs are forwarded unconditionally,
+// because dynamic ownership can also be enabled through
+// WithReconcilerOpts(WithDynamicOwnership()), and the runtime must keep
+// excluding them in that case too. Only GVKs beyond the defaults are
+// forwarded: the defaults' ownership enforcement does not come from the
+// exclusion set (the shouldOwn Namespace guard and the CRD deploy dispatch
+// handle it), and forwarding a restated default would only suppress the
+// dynamic CRD by-name watch through the exclusion check in the dynamic
+// ownership action.
+func (b *ReconcilerBuilder[T]) ownershipExclusionOpts() []ReconcilerOpt {
+	var opts []ReconcilerOpt
+	if b.dynamicOwnership {
+		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
+	}
+	var custom []schema.GroupVersionKind
+	for _, g := range b.unownableGVKs {
+		if !slices.Contains(defaultUnownableGVKs, g) {
+			custom = append(custom, g)
+		}
+	}
+	if len(custom) > 0 {
+		opts = append(opts, withUnownableGVKs(custom...))
+	}
+	return opts
+}
+
 func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 	if b.errors != nil {
 		return nil, b.errors
 	}
+
+	// Reject unownable owned watches regardless of the order in which
+	// Owns()/OwnsGVK() and WithUnownableGVKs() were called: the Owns()-time
+	// check only sees the unownable set as it stood when the watch was
+	// recorded. Watches recorded via Watches() are not owned and are
+	// unaffected.
+	for _, w := range b.watches {
+		if w.owned && b.isUnownableGVK(w.object.GetObjectKind().GroupVersionKind()) {
+			return nil, unownableGVKError("Build", w.object.GetObjectKind().GroupVersionKind())
+		}
+	}
+
 	name := b.instanceName
 	if name == "" {
 		name = strings.ToLower(b.input.gvk.Kind)
@@ -466,9 +559,7 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 	opts := []ReconcilerOpt{
 		WithConditionAggregator(aggregator),
 	}
-	if b.dynamicOwnership {
-		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
-	}
+	opts = append(opts, b.ownershipExclusionOpts()...)
 
 	opts = append(opts, b.reconcilerOpts...)
 	if b.skipStatusConditionsFn != nil {

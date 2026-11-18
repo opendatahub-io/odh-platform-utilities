@@ -55,6 +55,7 @@ func (c *stubController) GetDynamicClient() dynamic.Interface                   
 func (c *stubController) GetMetadataClient() metadata.Interface                         { return nil }
 func (c *stubController) IsDynamicOwnershipEnabled() bool                               { return true }
 func (c *stubController) IsExcludedFromDynamicOwnership(_ schema.GroupVersionKind) bool { return false }
+func (c *stubController) IsUnownableGVK(_ schema.GroupVersionKind) bool                 { return false }
 
 func newStubController() *stubController {
 	return &stubController{dynamicOwned: make(map[schema.GroupVersionKind]struct{})}

@@ -675,6 +675,25 @@ func (a *Action) apply(
 }
 
 func (a *Action) shouldOwn(rr *odhTypes.ReconciliationRequest, objGVK schema.GroupVersionKind) bool {
+	// Never set controller owner references on a GVK the controller
+	// declares unownable: the full set (the defaults plus anything
+	// registered via WithUnownableGVKs), consulted ahead of static
+	// ownership so the declaration always wins.
+	if rr.Controller.IsUnownableGVK(objGVK) {
+		return false
+	}
+
+	// Zero-configuration backstop: never set controller owner references
+	// on Namespaces regardless of what the controller reports. Doing so
+	// makes the Kubernetes garbage collector cascade-delete the entire
+	// namespace (and everything in it) when the owning CR is deleted.
+	// This mirrors the pkg/deploy Deployer's unconditional Namespace
+	// exclusion and covers Controller implementations that bypass
+	// ReconcilerBuilder and report no unownable configuration.
+	if objGVK == gvk.Namespace {
+		return false
+	}
+
 	if rr.Controller.Owns(objGVK) {
 		return true
 	}

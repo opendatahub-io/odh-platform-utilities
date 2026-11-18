@@ -178,6 +178,20 @@ func WithDynamicOwnership(opts ...DynamicOwnershipOption) ReconcilerOpt {
 	}
 }
 
+// withUnownableGVKs registers GVKs that must never receive a controller
+// owner reference, independently of whether dynamic ownership is enabled.
+// It populates both runtime sets: the unownable set consulted by
+// shouldOwn ahead of static ownership, and the dynamic-ownership
+// exclusion set, so the GVK is out of the dynamic machinery entirely.
+func withUnownableGVKs(gvks ...schema.GroupVersionKind) ReconcilerOpt {
+	return func(reconciler *Reconciler) {
+		for _, g := range gvks {
+			reconciler.excludeFromDynamicOwnership[g] = struct{}{}
+			reconciler.unownableGVKs[g] = struct{}{}
+		}
+	}
+}
+
 // Reconciler provides generic reconciliation functionality for operator objects.
 type Reconciler struct {
 	Client          client.Client
@@ -209,6 +223,7 @@ type Reconciler struct {
 	dynamicGvks                 sync.Map
 	dynamicOwnershipEnabled     bool
 	excludeFromDynamicOwnership map[schema.GroupVersionKind]struct{}
+	unownableGVKs               map[schema.GroupVersionKind]struct{}
 	skipConditionCleanup        bool
 	skipStatusConditionsFn      func() bool
 	defaultRequeueAfter         time.Duration
@@ -239,6 +254,13 @@ func NewReconciler[T api.PlatformObject](
 		},
 		gvks:                        make(map[schema.GroupVersionKind]gvkInfo),
 		excludeFromDynamicOwnership: make(map[schema.GroupVersionKind]struct{}),
+		unownableGVKs: func() map[schema.GroupVersionKind]struct{} {
+			m := make(map[schema.GroupVersionKind]struct{}, len(defaultUnownableGVKs))
+			for _, g := range defaultUnownableGVKs {
+				m[g] = struct{}{}
+			}
+			return m
+		}(),
 	}
 
 	for _, opt := range opts {
@@ -343,6 +365,18 @@ func (r *Reconciler) IsDynamicOwnershipEnabled() bool {
 func (r *Reconciler) IsExcludedFromDynamicOwnership(gvk schema.GroupVersionKind) bool {
 	_, excluded := r.excludeFromDynamicOwnership[gvk]
 	return excluded
+}
+
+// IsUnownableGVK reports whether the GVK must never receive a controller
+// owner reference, whatever the ownership configuration. The set is seeded
+// with the defaults (Namespace, CustomResourceDefinition) at construction
+// and extended through WithUnownableGVKs. It is deliberately separate from
+// the dynamic-ownership exclusion set: excluding a GVK from dynamic
+// ownership does not un-own it (static Owns keeps its documented
+// precedence), while declaring it unownable forbids ownership entirely.
+func (r *Reconciler) IsUnownableGVK(gvk schema.GroupVersionKind) bool {
+	_, unownable := r.unownableGVKs[gvk]
+	return unownable
 }
 
 func (r *Reconciler) AddAction(action actions.Fn) {
