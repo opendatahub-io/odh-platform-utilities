@@ -21,7 +21,10 @@ import (
 // the way NewReconciler would, so builder wiring can be tested without a
 // manager.
 func applyReconcilerOpts(optGroups ...[]ReconcilerOpt) *Reconciler {
-	r := &Reconciler{excludeFromDynamicOwnership: map[schema.GroupVersionKind]struct{}{}}
+	r := &Reconciler{
+		excludeFromDynamicOwnership: map[schema.GroupVersionKind]struct{}{},
+		unownableGVKs:               map[schema.GroupVersionKind]struct{}{},
+	}
 	for _, group := range optGroups {
 		for _, opt := range group {
 			opt(r)
@@ -299,6 +302,34 @@ func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
 		g.Expect(b.errors).To(HaveOccurred())
 		g.Expect(b.errors.Error()).To(ContainSubstring("event mapper"))
 		g.Expect(b.errors.Error()).To(ContainSubstring("WithPredicates"))
+	})
+
+	t.Run("WithUnownableGVKs marks the GVK unownable on the runtime controller", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithUnownableGVKs(gvk.Secret)
+
+		r := applyReconcilerOpts(b.ownershipExclusionOpts(), b.reconcilerOpts)
+		g.Expect(r.IsUnownableGVK(gvk.Secret)).To(BeTrue())
+		g.Expect(r.IsUnownableGVK(gvk.ConfigMap)).To(BeFalse())
+	})
+
+	t.Run("ExcludeGVKs does not mark the GVK unownable", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Excluding a GVK from dynamic ownership is not the same contract
+		// as declaring it unownable: static Owns() keeps its documented
+		// precedence over the exclusion, so the two must stay separate at
+		// the runtime controller too.
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithDynamicOwnership(ExcludeGVKs(gvk.Secret))
+
+		r := applyReconcilerOpts(b.ownershipExclusionOpts(), b.reconcilerOpts)
+		g.Expect(r.IsExcludedFromDynamicOwnership(gvk.Secret)).To(BeTrue())
+		g.Expect(r.IsUnownableGVK(gvk.Secret)).To(BeFalse())
 	})
 
 	t.Run("restating a default unownable GVK does not exclude it from the runtime set", func(t *testing.T) {

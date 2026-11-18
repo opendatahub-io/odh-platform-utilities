@@ -517,7 +517,7 @@ func (b *ReconcilerBuilder[T]) ownershipExclusionOpts() []ReconcilerOpt {
 		}
 	}
 	if len(custom) > 0 {
-		opts = append(opts, withOwnershipExclusions(custom...))
+		opts = append(opts, withUnownableGVKs(custom...))
 	}
 	return opts
 }

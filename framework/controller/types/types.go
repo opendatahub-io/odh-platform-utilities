@@ -31,6 +31,7 @@ type Controller interface {
 	GetMetadataClient() metadata.Interface
 	IsDynamicOwnershipEnabled() bool
 	IsExcludedFromDynamicOwnership(gvk schema.GroupVersionKind) bool
+	IsUnownableGVK(gvk schema.GroupVersionKind) bool
 }
 
 type ResourceObject interface {
