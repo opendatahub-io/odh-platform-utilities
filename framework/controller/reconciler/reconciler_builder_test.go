@@ -13,8 +13,22 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/framework/resources"
 
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
+
+// applyReconcilerOpts applies the given option groups to a bare Reconciler
+// the way NewReconciler would, so builder wiring can be tested without a
+// manager.
+func applyReconcilerOpts(optGroups ...[]ReconcilerOpt) *Reconciler {
+	r := &Reconciler{excludeFromDynamicOwnership: map[schema.GroupVersionKind]struct{}{}}
+	for _, group := range optGroups {
+		for _, opt := range group {
+			opt(r)
+		}
+	}
+	return r
+}
 
 func TestReconcilerBuilder_ComposeWith(t *testing.T) {
 	noop := func(_ context.Context, _ *types.ReconciliationRequest) error { return nil }
@@ -223,18 +237,37 @@ func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
 		g.Expect(err).To(MatchError(ContainSubstring("must not be registered as an owned type")))
 	})
 
-	t.Run("WithUnownableGVKs excludes the GVK from dynamic ownership", func(t *testing.T) {
+	t.Run("WithUnownableGVKs excludes the GVK from dynamic ownership enabled via the builder", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// Build() forwards excludeFromOwnership to the runtime ownership
-		// decision; a GVK declared unownable must appear there, or the
-		// dynamic-ownership path would still set a controller owner
-		// reference on it.
+		// Apply the exact options Build() assembles, minus the manager
+		// wiring it cannot run without: the ownership decisions under
+		// test live entirely in these options.
 		b := &ReconcilerBuilder[*testPlatformObject]{}
 		b.WithUnownableGVKs(gvk.Secret)
+		b.WithDynamicOwnership(ExcludeGVKs(gvk.ConfigMap))
 
-		g.Expect(b.excludeFromOwnership).To(ContainElement(gvk.Secret))
+		r := applyReconcilerOpts(b.ownershipExclusionOpts(), b.reconcilerOpts)
+		g.Expect(r.IsDynamicOwnershipEnabled()).To(BeTrue())
+		g.Expect(r.IsExcludedFromDynamicOwnership(gvk.Secret)).To(BeTrue())
+		g.Expect(r.IsExcludedFromDynamicOwnership(gvk.ConfigMap)).To(BeTrue())
+	})
+
+	t.Run("WithUnownableGVKs excludes the GVK from dynamic ownership enabled via WithReconcilerOpts", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Dynamic ownership can also be enabled through the runtime
+		// option instead of the builder method; the unownable set must
+		// reach the runtime ownership decision either way.
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithUnownableGVKs(gvk.Secret)
+		b.WithReconcilerOpts(WithDynamicOwnership())
+
+		r := applyReconcilerOpts(b.ownershipExclusionOpts(), b.reconcilerOpts)
+		g.Expect(r.IsDynamicOwnershipEnabled()).To(BeTrue())
+		g.Expect(r.IsExcludedFromDynamicOwnership(gvk.Secret)).To(BeTrue())
 	})
 
 	t.Run("rejection message explains the event mapper for kinds without the instance annotation", func(t *testing.T) {
@@ -246,6 +279,7 @@ func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
 
 		g.Expect(b.errors).To(HaveOccurred())
 		g.Expect(b.errors.Error()).To(ContainSubstring("event mapper"))
+		g.Expect(b.errors.Error()).To(ContainSubstring("WithPredicates"))
 	})
 
 	t.Run("Watches on a Namespace records no error", func(t *testing.T) {

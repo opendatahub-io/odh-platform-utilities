@@ -178,6 +178,19 @@ func WithDynamicOwnership(opts ...DynamicOwnershipOption) ReconcilerOpt {
 	}
 }
 
+// withOwnershipExclusions registers GVKs that must never receive a
+// controller owner reference in the runtime ownership decision,
+// independently of whether dynamic ownership is enabled. shouldOwn
+// consults the exclusion set before the enablement flag, so exclusions
+// registered here hold no matter which API enabled dynamic ownership.
+func withOwnershipExclusions(gvks ...schema.GroupVersionKind) ReconcilerOpt {
+	return func(reconciler *Reconciler) {
+		for _, g := range gvks {
+			reconciler.excludeFromDynamicOwnership[g] = struct{}{}
+		}
+	}
+}
+
 // Reconciler provides generic reconciliation functionality for operator objects.
 type Reconciler struct {
 	Client          client.Client

@@ -466,16 +466,11 @@ func (b *ReconcilerBuilder[T]) OwnsGVK(gvk schema.GroupVersionKind, opts ...Watc
 // Module authors use it to declare kinds of their own that must never
 // receive a controller owner reference. The list is extend-only: the
 // defaults cannot be removed. Declaring a GVK unownable also excludes it
-// from dynamic ownership, so the runtime never sets a controller owner
-// reference on it either; use Watches() (with an explicit event mapper for
-// kinds that do not carry the instance annotation) to watch it.
+// from the runtime ownership decision, however dynamic ownership is
+// enabled; use Watches() (with an explicit event mapper for kinds that do
+// not carry the instance annotation) to watch it.
 func (b *ReconcilerBuilder[T]) WithUnownableGVKs(gvks ...schema.GroupVersionKind) *ReconcilerBuilder[T] {
 	b.unownableGVKs = append(b.unownableGVKs, gvks...)
-	// Declaring a GVK unownable also excludes it from dynamic ownership:
-	// Build() forwards excludeFromOwnership into the runtime ownership
-	// decision, so without this the dynamic-ownership path would still
-	// set a controller owner reference on it.
-	b.excludeFromOwnership = append(b.excludeFromOwnership, gvks...)
 	return b
 }
 
@@ -492,8 +487,28 @@ func unownableGVKError(caller string, g schema.GroupVersionKind) error {
 		"%s: %s must not be registered as an owned type: it never receives a controller owner reference, "+
 			"so it would neither be owned nor receive owner-routed watch events; "+
 			"use Watches() to watch it instead, providing an event mapper (WithEventMapper) "+
-			"for kinds that do not carry the instance annotation (for example CustomResourceDefinitions)",
+			"for kinds that do not carry the instance annotation (for example CustomResourceDefinitions) "+
+			"and predicates (WithPredicates) admitting the events of interest "+
+			"(the default predicate ignores create events and requires the part-of label)",
 		caller, g)
+}
+
+// ownershipExclusionOpts returns the reconciler options that wire ownership
+// exclusions into the runtime ownership decision. User-configured
+// dynamic-ownership exclusions are forwarded only when dynamic ownership is
+// enabled on the builder; unownable GVKs are forwarded unconditionally,
+// because dynamic ownership can also be enabled through
+// WithReconcilerOpts(WithDynamicOwnership()), and the runtime must keep
+// excluding them in that case too.
+func (b *ReconcilerBuilder[T]) ownershipExclusionOpts() []ReconcilerOpt {
+	var opts []ReconcilerOpt
+	if b.dynamicOwnership {
+		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
+	}
+	if len(b.unownableGVKs) > 0 {
+		opts = append(opts, withOwnershipExclusions(b.unownableGVKs...))
+	}
+	return opts
 }
 
 func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
@@ -533,9 +548,7 @@ func (b *ReconcilerBuilder[T]) Build(_ context.Context) (*Reconciler, error) {
 	opts := []ReconcilerOpt{
 		WithConditionAggregator(aggregator),
 	}
-	if b.dynamicOwnership {
-		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
-	}
+	opts = append(opts, b.ownershipExclusionOpts()...)
 
 	opts = append(opts, b.reconcilerOpts...)
 	if b.skipStatusConditionsFn != nil {
