@@ -87,3 +87,79 @@ func TestDeployNeverOwnsNamespace(t *testing.T) {
 	assert.Equal(t, "TestComponent", ownerRefs[0].Kind)
 	assert.True(t, *ownerRefs[0].Controller)
 }
+
+// dynamicOwnershipExcludingController simulates a controller built with
+// dynamic ownership enabled and a GVK excluded from it, as produced by
+// ReconcilerBuilder.WithUnownableGVKs however dynamic ownership is enabled.
+type dynamicOwnershipExcludingController struct {
+	stubController
+
+	excluded map[schema.GroupVersionKind]struct{}
+}
+
+func (c *dynamicOwnershipExcludingController) IsDynamicOwnershipEnabled() bool { return true }
+
+func (c *dynamicOwnershipExcludingController) IsExcludedFromDynamicOwnership(g schema.GroupVersionKind) bool {
+	_, ok := c.excluded[g]
+	return ok
+}
+
+// TestDeployExcludedGVKGetsNoOwnerReferenceUnderDynamicOwnership pins the
+// dynamic-ownership branch of shouldOwn end to end: with dynamic ownership
+// enabled, a GVK excluded from it must not receive a controller
+// ownerReference, while an allowed GVK in the same reconcile still gets
+// exactly one. This is the runtime decision the builder feeds through
+// withOwnershipExclusions for GVKs declared via WithUnownableGVKs.
+func TestDeployExcludedGVKGetsNoOwnerReferenceUnderDynamicOwnership(t *testing.T) {
+	t.Parallel()
+
+	s := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(s))
+
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(gvk.Secret, meta.RESTScopeNamespace)
+	mapper.Add(gvk.ConfigMap, meta.RESTScopeNamespace)
+
+	cli := ctrlfake.NewClientBuilder().
+		WithScheme(s).
+		WithRESTMapper(mapper).
+		Build()
+
+	instance := &stubInstance{}
+	instance.SetGroupVersionKind(schema.GroupVersionKind{Group: "test", Version: "v1", Kind: "TestComponent"})
+	instance.SetName("test-instance")
+
+	secret := unstructured.Unstructured{}
+	secret.SetGroupVersionKind(gvk.Secret)
+	secret.SetNamespace("probe-ns")
+	secret.SetName("probe-secret")
+
+	cm := unstructured.Unstructured{}
+	cm.SetGroupVersionKind(gvk.ConfigMap)
+	cm.SetNamespace("probe-ns")
+	cm.SetName("probe-cm")
+
+	rr := &odhTypes.ReconciliationRequest{
+		Client: cli,
+		Controller: &dynamicOwnershipExcludingController{
+			stubController: stubController{client: cli},
+			excluded:       map[schema.GroupVersionKind]struct{}{gvk.Secret: {}},
+		},
+		Instance:  instance,
+		Resources: []unstructured.Unstructured{secret, cm},
+	}
+
+	require.NoError(t, deploy.NewAction()(t.Context(), rr))
+
+	storedSecret := resources.GvkToUnstructured(gvk.Secret)
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Namespace: "probe-ns", Name: "probe-secret"}, storedSecret))
+	assert.Empty(t, storedSecret.GetOwnerReferences(),
+		"a GVK excluded from dynamic ownership must not receive a controller ownerReference")
+
+	storedCM := resources.GvkToUnstructured(gvk.ConfigMap)
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Namespace: "probe-ns", Name: "probe-cm"}, storedCM))
+	ownerRefs := storedCM.GetOwnerReferences()
+	require.Len(t, ownerRefs, 1)
+	assert.Equal(t, "TestComponent", ownerRefs[0].Kind)
+	assert.True(t, *ownerRefs[0].Controller)
+}

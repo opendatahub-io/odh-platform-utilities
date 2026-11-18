@@ -282,6 +282,22 @@ func TestReconcilerBuilder_OwnsUnownableGVKs(t *testing.T) {
 		g.Expect(b.errors.Error()).To(ContainSubstring("WithPredicates"))
 	})
 
+	t.Run("restating a default unownable GVK does not exclude it from the runtime set", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// The defaults' ownership enforcement does not come from the
+		// exclusion set (the shouldOwn Namespace guard and the CRD
+		// deploy dispatch handle it); forwarding a restated default
+		// would only suppress the dynamic CRD by-name watch through
+		// the exclusion check in the dynamic ownership action.
+		b := &ReconcilerBuilder[*testPlatformObject]{}
+		b.WithUnownableGVKs(gvk.CustomResourceDefinition)
+
+		r := applyReconcilerOpts(b.ownershipExclusionOpts(), b.reconcilerOpts)
+		g.Expect(r.IsExcludedFromDynamicOwnership(gvk.CustomResourceDefinition)).To(BeFalse())
+	})
+
 	t.Run("Watches on a Namespace records no error", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)

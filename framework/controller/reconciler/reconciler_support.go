@@ -499,14 +499,25 @@ func unownableGVKError(caller string, g schema.GroupVersionKind) error {
 // enabled on the builder; unownable GVKs are forwarded unconditionally,
 // because dynamic ownership can also be enabled through
 // WithReconcilerOpts(WithDynamicOwnership()), and the runtime must keep
-// excluding them in that case too.
+// excluding them in that case too. Only GVKs beyond the defaults are
+// forwarded: the defaults' ownership enforcement does not come from the
+// exclusion set (the shouldOwn Namespace guard and the CRD deploy dispatch
+// handle it), and forwarding a restated default would only suppress the
+// dynamic CRD by-name watch through the exclusion check in the dynamic
+// ownership action.
 func (b *ReconcilerBuilder[T]) ownershipExclusionOpts() []ReconcilerOpt {
 	var opts []ReconcilerOpt
 	if b.dynamicOwnership {
 		opts = append(opts, WithDynamicOwnership(ExcludeGVKs(b.excludeFromOwnership...)))
 	}
-	if len(b.unownableGVKs) > 0 {
-		opts = append(opts, withOwnershipExclusions(b.unownableGVKs...))
+	var custom []schema.GroupVersionKind
+	for _, g := range b.unownableGVKs {
+		if !slices.Contains(defaultUnownableGVKs, g) {
+			custom = append(custom, g)
+		}
+	}
+	if len(custom) > 0 {
+		opts = append(opts, withOwnershipExclusions(custom...))
 	}
 	return opts
 }
