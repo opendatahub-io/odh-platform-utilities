@@ -2,7 +2,7 @@
 
 // Schema placement integration test. Requires Docker or Podman.
 //
-//	go test ./postgres/... -tags integration -race -count=1 -run TestSchemaPlacement
+//	cd framework && go test ./postgres/... -tags integration -race -count=1 -run TestSchemaPlacement
 package postgres_test
 
 import (

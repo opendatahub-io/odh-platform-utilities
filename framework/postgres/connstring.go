@@ -75,6 +75,12 @@ func (p Params) libpq(caFile string) string {
 	mode := p.effectiveSSLMode()
 	if mode != "" {
 		parts = append(parts, kw(SecretKeySSLMode, mode))
+		// Keep TLS + claim CA in force: with GSSAPI available, libpq may skip
+		// certificate checks even when sslmode asks for verify-*. Omitted
+		// sslmode is left unchanged (libpq ≥ 12 for gssencmode).
+		if mode != SSLModeDisable {
+			parts = append(parts, kw("gssencmode", "disable"))
+		}
 	}
 
 	if caFile != "" && p.needsCAFile() {

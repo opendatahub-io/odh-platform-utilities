@@ -53,10 +53,30 @@ func TestLibpq_SSLRootCertForVerifyModes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, s, "sslmode='verify-full'")
 	assert.Contains(t, s, "sslrootcert='/tmp/ca.crt'")
+	assert.Contains(t, s, "gssencmode='disable'")
 
 	sDisable, err := baseParams().Libpq("/tmp/ca.crt")
 	require.NoError(t, err)
 	assert.NotContains(t, sDisable, "sslrootcert=")
+	assert.NotContains(t, sDisable, "gssencmode=")
+}
+
+func TestLibpq_GSSEncModeOnlyWhenTLSRequired(t *testing.T) {
+	t.Parallel()
+
+	empty := baseParams()
+	empty.SSLMode = ""
+	sEmpty, err := empty.Libpq("")
+	require.NoError(t, err)
+	assert.NotContains(t, sEmpty, "gssencmode=")
+	assert.NotContains(t, sEmpty, "sslmode=")
+
+	requireMode := baseParams()
+	requireMode.SSLMode = postgres.SSLModeRequire
+	sRequire, err := requireMode.Libpq("")
+	require.NoError(t, err)
+	assert.Contains(t, sRequire, "sslmode='require'")
+	assert.Contains(t, sRequire, "gssencmode='disable'")
 }
 
 func TestLibpq_EmptyCAFileRejectedWhenNeeded(t *testing.T) {
@@ -139,6 +159,7 @@ func TestRequireWithCA_PromotesAcrossAPIs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, libpq, "sslmode='verify-ca'")
 	assert.Contains(t, libpq, "sslrootcert='/tmp/ca.crt'")
+	assert.Contains(t, libpq, "gssencmode='disable'")
 
 	jdbc, err := p.JDBC("/tmp/ca.crt")
 	require.NoError(t, err)

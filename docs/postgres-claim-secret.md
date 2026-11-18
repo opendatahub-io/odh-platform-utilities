@@ -46,10 +46,16 @@ posture.
 
 ```go
 params, err := postgres.ParseClaimSecret(secret)
+if err != nil {
+    return err
+}
 if params.SSLMode == "" {
     params.SSLMode = postgres.SSLModeRequire // or SSLModeDisable in-cluster
 }
 conn, err := postgres.Connect(ctx, params)
+if err != nil {
+    return err
+}
 defer conn.Close(ctx)
 ```
 
@@ -65,11 +71,29 @@ rejected for `verify-ca`, `verify-full`, and `require` with CA so
 `sslrootcert` is not silently omitted.
 
 ```go
+params, err := postgres.ParseClaimSecret(secret)
+if err != nil {
+    return err
+}
+if params.SSLMode == "" {
+    params.SSLMode = postgres.SSLModeRequire // or SSLModeDisable in-cluster
+}
+
 caFile, cleanup, err := params.WriteCACert("")
+if err != nil {
+    return err
+}
 defer cleanup()
 
 libpq, err := params.Libpq(caFile)
+if err != nil {
+    return err
+}
+
 jdbc, err := params.JDBC(caFile)
+if err != nil {
+    return err
+}
 ```
 
 Schema is applied as libpq `options=-csearch_path=…` or JDBC `currentSchema`.

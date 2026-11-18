@@ -3,6 +3,7 @@ package postgres
 import (
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,8 +35,12 @@ var (
 	// ErrInvalidSchema is returned when schema is not a single unquoted identifier.
 	ErrInvalidSchema = errors.New("invalid schema")
 	// ErrInvalidHost is returned when host is not a single host name or address
-	// (e.g. multi-host lists or URL delimiters that would break JDBC authority).
+	// (e.g. multi-host lists, host:port, or URL delimiters that would break
+	// JDBC authority / JoinHostPort).
 	ErrInvalidHost = errors.New("invalid host")
+	// ErrInvalidValue is returned when a required field contains a NUL byte that
+	// would truncate a libpq connection string.
+	ErrInvalidValue = errors.New("invalid value")
 
 	// schemaPattern restricts Schema to one PostgreSQL-style unquoted identifier
 	// so it cannot inject libpq options (-c…) or widen search_path via commas.
@@ -118,16 +123,20 @@ func ParseClaimSecret(secret *corev1.Secret) (Params, error) {
 // Errors name Secret keys and never include the password value.
 func (p Params) Validate() error {
 	for _, field := range [...]struct {
-		key     string
-		missing bool
+		key string
+		val string
 	}{
-		{SecretKeyHost, p.Host == ""},
-		{SecretKeyUser, p.User == ""},
-		{SecretKeyPassword, p.Password == ""},
-		{SecretKeyDatabase, p.DBName == ""},
+		{SecretKeyHost, p.Host},
+		{SecretKeyUser, p.User},
+		{SecretKeyPassword, p.Password},
+		{SecretKeyDatabase, p.DBName},
 	} {
-		if field.missing {
+		if field.val == "" {
 			return fmt.Errorf("missing or empty key %q in Secret: %w", field.key, ErrMissingKey)
+		}
+		// Libpq treats values as C strings; a NUL truncates before the closing quote.
+		if strings.ContainsRune(field.val, 0) {
+			return fmt.Errorf("invalid %q in Secret: contains a NUL byte: %w", field.key, ErrInvalidValue)
 		}
 	}
 
@@ -154,6 +163,13 @@ func validateHost(p Params) error {
 	// JDBC cannot treat path/query fragments in host as database/query params.
 	if strings.ContainsAny(p.Host, ",/?#@&") {
 		return fmt.Errorf("invalid %s: must be a single host without URL delimiters: %w",
+			SecretKeyHost, ErrInvalidHost)
+	}
+
+	// Port is a separate Secret key. Reject host:port so JoinHostPort cannot
+	// emit [host:port]:Port. Bare IPv6 literals (e.g. ::1) remain valid.
+	if strings.Contains(p.Host, ":") && net.ParseIP(p.Host) == nil {
+		return fmt.Errorf("invalid %s: must be a single host without an embedded port: %w",
 			SecretKeyHost, ErrInvalidHost)
 	}
 

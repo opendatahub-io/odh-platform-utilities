@@ -104,6 +104,9 @@ func (p Params) TLSConfig() (*tls.Config, error) {
 func applySSLMode(cfg *tls.Config, mode string) {
 	switch mode {
 	case SSLModeVerifyCA:
+		// Policy exception: libpq verify-ca / db-operator client_tls.go parity.
+		// Go has no chain-only mode; InsecureSkipVerify + VerifyPeerCertificate
+		// validates the CA chain and intentionally skips hostname .
 		// nosemgrep: go-tls-bypass -- verify-ca skips hostname check; verifyCertificateChain does CA validation.
 		cfg.InsecureSkipVerify = true
 		// Disable session tickets so resumed handshakes cannot skip VerifyPeerCertificate.
@@ -113,7 +116,6 @@ func applySSLMode(cfg *tls.Config, mode string) {
 		cfg.InsecureSkipVerify = false
 		cfg.VerifyPeerCertificate = nil
 	case SSLModeRequire:
-		// Libpq require without CA: encrypt only (require+CA is promoted earlier).
 		// nosemgrep: go-tls-bypass -- intentional libpq require; no peer verify without CA.
 		cfg.InsecureSkipVerify = true
 		cfg.VerifyPeerCertificate = nil

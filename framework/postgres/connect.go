@@ -68,6 +68,9 @@ func pgxDSN(p Params) string {
 	// Override PGSSLROOTCERT so a missing ambient file cannot fail ParseConfig
 	// before Params.TLSConfig applies the claim Secret CA.
 	q.Set("sslrootcert", "")
+	// Claim Secrets do not supply a client identity; ignore ambient PGSSLCERT /
+	// PGSSLKEY so a missing client cert cannot block ParseConfig.
+	q.Set("sslcertmode", "disable")
 
 	u := url.URL{
 		Scheme: "postgres",

@@ -8,10 +8,10 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,8 +69,9 @@ func TestConnect_IgnoresMissingPGSSLROOTCERT(t *testing.T) {
 	t.Setenv("PGSSLROOTCERT", "/nonexistent/odh-claim-ca.crt")
 
 	p := postgres.Params{
-		Host:     "db.example.test",
-		Port:     postgres.DefaultPort,
+		// Loopback + closed port: prove a dial attempt without waiting on DNS.
+		Host:     "127.0.0.1",
+		Port:     1,
 		User:     "app",
 		Password: "s3cret",
 		DBName:   "appdb",
@@ -81,8 +82,10 @@ func TestConnect_IgnoresMissingPGSSLROOTCERT(t *testing.T) {
 	require.Error(t, err)
 	// ParseConfig must not fail on the missing ambient file; claim CA is used instead.
 	assert.NotContains(t, err.Error(), "unable to read CA file")
-	assert.True(t, strings.Contains(err.Error(), "connect") || strings.Contains(err.Error(), "dial"),
-		"expected dial/connect failure, got: %v", err)
+	// Substring "connect" also matches "parse connection config"; require a
+	// connection-stage error so parse failures cannot pass this assertion.
+	var connectErr *pgconn.ConnectError
+	require.ErrorAs(t, err, &connectErr)
 }
 
 func TestConnect_InvalidClaimCAStillRejectedWithPGSSLROOTCERT(t *testing.T) {
@@ -101,6 +104,27 @@ func TestConnect_InvalidClaimCAStillRejectedWithPGSSLROOTCERT(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, postgres.ErrInvalidCACert)
 	assert.NotContains(t, err.Error(), "unable to read CA file")
+}
+
+func TestConnect_IgnoresMissingPGSSLCERT(t *testing.T) {
+	// Not parallel: t.Setenv affects process env for this test.
+	t.Setenv("PGSSLCERT", "/nonexistent/odh-client.crt")
+	t.Setenv("PGSSLKEY", "/nonexistent/odh-client.key")
+
+	p := postgres.Params{
+		Host:     "127.0.0.1",
+		Port:     1,
+		User:     "app",
+		Password: "s3cret",
+		DBName:   "appdb",
+		SSLMode:  postgres.SSLModeVerifyFull,
+		CACert:   mustConnectTestCA(t),
+	}
+	_, err := postgres.Connect(t.Context(), p)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "unable to read")
+	var connectErr *pgconn.ConnectError
+	require.ErrorAs(t, err, &connectErr)
 }
 
 func mustConnectTestCA(t *testing.T) string {

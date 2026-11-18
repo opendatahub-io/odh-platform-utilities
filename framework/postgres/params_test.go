@@ -76,6 +76,42 @@ func TestParseSecretData_MissingKeys(t *testing.T) {
 	}
 }
 
+func TestParseSecretData_NULRejected(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{
+		postgres.SecretKeyHost,
+		postgres.SecretKeyUser,
+		postgres.SecretKeyPassword,
+		postgres.SecretKeyDatabase,
+	} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+
+			data := validSecretData()
+			data[key] = []byte("ok\x00more")
+			_, err := postgres.ParseSecretData(data)
+			require.Error(t, err)
+			require.ErrorIs(t, err, postgres.ErrInvalidValue)
+			assert.Contains(t, err.Error(), key)
+			assert.NotContains(t, err.Error(), "s3cret")
+			assert.NotContains(t, err.Error(), "\x00")
+		})
+	}
+}
+
+func TestParseSecretData_QuotesAndBackslashesAllowed(t *testing.T) {
+	t.Parallel()
+
+	data := validSecretData()
+	data[postgres.SecretKeyPassword] = []byte(`p'ass\word`)
+	data[postgres.SecretKeyUser] = []byte(`u'ser`)
+	p, err := postgres.ParseSecretData(data)
+	require.NoError(t, err)
+	assert.Equal(t, `p'ass\word`, p.Password)
+	assert.Equal(t, `u'ser`, p.User)
+}
+
 func TestParseSecretData_InvalidPort(t *testing.T) {
 	t.Parallel()
 
@@ -185,6 +221,10 @@ func TestParseSecretData_InvalidHostRejected(t *testing.T) {
 		"db.example.test/extra",
 		"db.example.test?sslmode=disable",
 		"user@db.example.test",
+		"db.example.test:5433",
+		"127.0.0.1:5432",
+		"[::1]:5432",
+		"[::1]",
 	} {
 		t.Run(host, func(t *testing.T) {
 			t.Parallel()
@@ -198,6 +238,16 @@ func TestParseSecretData_InvalidHostRejected(t *testing.T) {
 			assert.NotContains(t, err.Error(), "s3cret")
 		})
 	}
+}
+
+func TestParseSecretData_IPv6HostAccepted(t *testing.T) {
+	t.Parallel()
+
+	data := validSecretData()
+	data[postgres.SecretKeyHost] = []byte("::1")
+	p, err := postgres.ParseSecretData(data)
+	require.NoError(t, err)
+	assert.Equal(t, "::1", p.Host)
 }
 
 func TestParseClaimSecret_Annotation(t *testing.T) {
