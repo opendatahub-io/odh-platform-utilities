@@ -71,14 +71,30 @@ The helpers mutate the object in memory only. Write the status subresource
 as the controller already does, typically with `pkg/status`:
 
 ```go
+gen := obj.GetGeneration()
+uid := obj.GetUID()
+
+connErr := db.PingContext(ctx)
+
 err := status.Update(ctx, client, obj, func(o *MyModule) {
+    if o.GetUID() != uid || o.GetGeneration() != gen {
+        return // object replaced or spec changed mid-flight; requeue
+    }
     if connErr != nil {
-        conditions.SetFailed(o, connErr)
+        conditions.SetFailed(o, connErr, kcond.WithObservedGeneration(gen))
     } else {
-        conditions.SetConnected(o)
+        conditions.SetConnected(o, kcond.WithObservedGeneration(gen))
     }
 })
 ```
+
+Capture the object's generation and UID when the check starts and compare
+both inside the callback: `status.Update` re-runs the callback on conflict
+retries against a freshly read object, so a result from an older spec must
+not be written onto a newer one — and the generation alone is not enough,
+because a deleted-and-recreated object restarts at generation 1. Stamping
+`WithObservedGeneration` lets readers detect a stale condition
+independently.
 
 ## Classifying failures
 
@@ -87,9 +103,10 @@ uses standard library inspection only:
 
 | Error | Reason |
 |-------|--------|
-| `x509` certificate / hostname errors, `tls.RecordHeaderError` | `TLSVerificationFailed` |
+| `x509` certificate / hostname errors, `tls.RecordHeaderError`, `tls.AlertError` | `TLSVerificationFailed` |
 | Errors implementing `net.Error` (DNS, connection refused, network and dialer timeouts) | `HostUnreachable` |
-| Caller context errors (`context.DeadlineExceeded`, `context.Canceled`) not surfaced through a network operation | `ConnectionFailed` |
+| Caller cancellation (`context.Canceled`), even when surfaced through a network operation | `ConnectionFailed` |
+| Caller deadline (`context.DeadlineExceeded`) not surfaced through a network operation | `ConnectionFailed` |
 | Anything else, including `nil` | `ConnectionFailed` |
 
 Two classifications cannot be derived and must be passed explicitly:
@@ -107,14 +124,17 @@ Two classifications cannot be derived and must be passed explicitly:
   connection was attempted — should be reported as
   `ReasonCredentialsUnavailable`, again via `WithReason`.
 
-Deadlines are classified by how they surface: a dialer's own timeout
-surfaces as a `net.OpError` wrapping the same sentinel as
-`context.DeadlineExceeded` on some Go versions — and the context sentinels
-themselves satisfy `net.Error` on others — so neither the sentinel nor the
-interface alone can tell the two apart. A context error is treated as the
-caller's budget only when no `net.OpError` appears in its error chain;
-anything that surfaced through a network operation, including dialer
-timeouts, is reported as `HostUnreachable`.
+Cancellation is unambiguous — nothing in the network stack cancels a
+context on its own — so it always maps to the caller's `ConnectionFailed`,
+even when the error surfaces through a network operation. Deadlines are
+classified by how they surface: a dialer's own timeout surfaces as a
+`net.OpError` wrapping the same sentinel as `context.DeadlineExceeded` on
+some Go versions — and the context sentinels themselves satisfy
+`net.Error` on others — so neither the sentinel nor the interface alone
+can tell the two apart. A deadline is treated as the caller's budget only
+when no `net.OpError` appears in its error chain; anything that surfaced
+through a network operation, including dialer timeouts, is reported as
+`HostUnreachable`.
 
 ## Message redaction
 
@@ -129,14 +149,16 @@ consumers to keep that material out of logs and status. Redaction covers:
   non-whitespace token honouring backslash escapes, so characters like `;`
   and `&` are treated as password material, not separators. An unterminated
   quote masks the remainder of the string — redaction fails closed;
-- passwords embedded in URIs (`scheme://user:password@host`), including an
-  empty user and passwords containing a slash.
+- credentials embedded in URIs (`scheme://user:password@host` and password
+  query parameters). URI spans are parsed structurally: userinfo splits at
+  the last `@` (so a password containing `@`, `:`, `/` or `?` is fully
+  masked), query keys are percent-decoded before comparison, DSN quoting
+  rules never apply to query values, and non-secret query fields are
+  preserved.
 
 Redaction is idempotent and leaves clean messages unchanged — including
 `pq: password authentication failed for user "x"`, which contains no
-key/value pair. Known limitation: a password containing an unencoded `@`
-inside a URI cannot be fully masked, because the URI itself is ambiguous
-at that point.
+key/value pair.
 
 `Redact` is exported for the same purpose anywhere else a connection string
 might reach a log line.
@@ -151,7 +173,7 @@ Both setters accept the options from `pkg/controller/conditions`:
 | `WithMessage(format, args...)` | Replace the message (still redacted) |
 | `WithSeverity(common.ConditionSeverityInfo)` | Report as informational — a `False` with `Info` severity does not affect `Ready` aggregation |
 | `WithObservedGeneration(int64)` | Stamp the reconciled generation |
-| `WithError(err)` | Message only; the generic reason it sets is replaced by the computed classification |
+| `WithError(err)` | Sets the message and Error severity; the generic reason it sets is replaced by the computed classification. `WithSeverity(Info)` must come **after** `WithError` to keep informational severity |
 
 Pass `WithObservedGeneration` on **every** call: the upsert replaces the
 condition wholesale (matching `SetStatusCondition` and Manager semantics),
@@ -171,14 +193,27 @@ mgr := kcond.NewManager(obj,
 
 mgr.MarkFalse(string(common.ConditionTypeDatabaseConnected),
     kcond.WithReason(common.ReasonHostUnreachable),
-    kcond.WithMessage("dial tcp: connection refused"))
+    kcond.WithMessage(conditions.Redact(err.Error())))
 // Ready is now False with the reason propagated.
 ```
 
+**The Manager path does not redact.** Redaction happens in the raw
+setters only, so a dynamic message supplied to `WithMessage` — which the
+Manager also copies into the propagated `Ready` condition — must be passed
+through `Redact` first, or credentials embedded in a driver error would
+land in the status.
+
 A `False` dependent with default (Error) severity pulls `Ready` to `False`;
-the same failure with `WithSeverity(ConditionSeverityInfo)` leaves `Ready`
-untouched. `Unknown` dependents count as unhappy, so a component that has
-not checked its database yet does not report `Ready=True`.
+the same failure with `WithSeverity(ConditionSeverityInfo)` does not count
+as an unhealthy dependent — `Ready` is still recomputed, so a sole
+dependent moving to `False`/`Info` can take `Ready` from `Unknown` to
+`True`. `Unknown` dependents count as unhappy, so a component that has
+not checked its database yet does not report `Ready=True`. One rollout
+caveat: registering the dependent on an object whose `Ready` is already
+`True` seeds `DatabaseConnected=True` before any probe — if the first
+check must gate readiness, mark the new dependent `Unknown`
+(`mgr.MarkUnknown(...)`) after constructing the Manager, or probe before
+the first status write.
 
 **Do not mix the two paths on one object.** The raw setters upsert through
 `SetStatusCondition` directly and do not trigger the Manager's happiness

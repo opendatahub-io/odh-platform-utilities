@@ -63,6 +63,14 @@ var (
 	// errUnterminatedQuote mimics a malformed DSN whose quoted password
 	// never closes.
 	errUnterminatedQuote = errors.New("connect: password='prefix suffix dbname=registry")
+
+	// errURIPasswordFragment mimics an error whose URI userinfo password
+	// contains a password= fragment.
+	errURIPasswordFragment = errors.New("failed to connect to postgres://u:prefix-password=xxx@host/db")
+
+	// errSchemePassword mimics an error whose password value contains an
+	// embedded scheme.
+	errSchemePassword = errors.New("failed to connect: password='ab://cd' dbname=x")
 )
 
 // componentCR is a minimal component CR: embedding common.Status provides
@@ -234,6 +242,65 @@ func TestSetConnectedRedactsMessageOption(t *testing.T) {
 	assert.Contains(t, got.Message, "password=REDACTED")
 }
 
+func TestSetFailedRedactsURIPasswordFragment(t *testing.T) {
+	t.Parallel()
+
+	cr := &componentCR{}
+
+	conditions.SetFailed(cr, errURIPasswordFragment)
+
+	got := findCondition(t, cr, common.ConditionTypeDatabaseConnected)
+	assert.NotContains(t, got.Message, "prefix-password")
+	assert.NotContains(t, got.Message, "xxx")
+	assert.Contains(t, got.Message, "u:REDACTED@")
+}
+
+func TestSetFailedRedactsSchemeInPassword(t *testing.T) {
+	t.Parallel()
+
+	cr := &componentCR{}
+
+	conditions.SetFailed(cr, errSchemePassword)
+
+	got := findCondition(t, cr, common.ConditionTypeDatabaseConnected)
+	assert.NotContains(t, got.Message, "ab://cd")
+	assert.Contains(t, got.Message, "password=REDACTED")
+}
+
+// The type and status are the setters' contract: a custom option must not
+// be able to upsert a sibling condition or invert the reported outcome.
+func TestSettersFixTypeAndStatus(t *testing.T) {
+	t.Parallel()
+
+	rogue := func(c *common.Condition) {
+		c.Type = string(common.ConditionTypeReady)
+		c.Status = metav1.ConditionTrue
+	}
+
+	cr := &componentCR{}
+	conditions.SetFailed(cr, errDialRefused, rogue)
+
+	assert.Len(t, cr.GetConditions(), 1)
+
+	got := findCondition(t, cr, common.ConditionTypeDatabaseConnected)
+	assert.Equal(t, metav1.ConditionFalse, got.Status)
+	assert.Equal(t, common.ReasonHostUnreachable, got.Reason)
+
+	rogueFalse := func(c *common.Condition) {
+		c.Type = string(common.ConditionTypeDegraded)
+		c.Status = metav1.ConditionFalse
+	}
+
+	cr = &componentCR{}
+	conditions.SetConnected(cr, rogueFalse)
+
+	assert.Len(t, cr.GetConditions(), 1)
+
+	got = findCondition(t, cr, common.ConditionTypeDatabaseConnected)
+	assert.Equal(t, metav1.ConditionTrue, got.Status)
+	assert.Equal(t, common.ReasonConnectionSucceeded, got.Reason)
+}
+
 func TestSetFailedRedactsMessagesSuppliedViaOptions(t *testing.T) {
 	t.Parallel()
 
@@ -322,6 +389,12 @@ func TestReasonForErrorDefaultsToConnectionFailed(t *testing.T) {
 		{err: context.DeadlineExceeded, name: "caller context deadline exceeded"},
 		{err: context.Canceled, name: "caller context canceled"},
 		{
+			// Cancellation is always the caller's, even when it
+			// surfaced through a network operation.
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: context.Canceled},
+			name: "network-wrapped context cancellation",
+		},
+		{
 			err:  fmt.Errorf("ping: %w", context.DeadlineExceeded),
 			name: "wrapped caller context deadline",
 		},
@@ -356,6 +429,12 @@ func TestReasonForErrorClassifiesNetworkErrors(t *testing.T) {
 			name: "dialer deadline",
 		},
 		{
+			// A network-wrapped context deadline: the shape a dialer
+			// timeout produces on Go versions whose net timeout error
+			// matches the context sentinel.
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded},
+			name: "network-wrapped context deadline",
+		}, {
 			err:  errors.Join(errDialRefused, errDuringReconcile),
 			name: "joined network error",
 		},
@@ -370,20 +449,36 @@ func TestReasonForErrorClassifiesNetworkErrors(t *testing.T) {
 	}
 }
 
-// A real dial with the dialer's own timeout: on the Go versions this
-// module targets, the resulting network error wraps the same sentinel as
-// context.DeadlineExceeded, which the synthetic cases above cannot
-// reproduce. The classification must be HostUnreachable whether the
-// environment yields a timeout or an unreachable-route error; the dial is
-// bounded by the dialer timeout.
+// A dial whose deadline is already in the past returns before any network
+// I/O with the same shape as a dialer timeout: a *net.OpError wrapping the
+// context deadline sentinel. The errors.Is assertion pins that the guarded
+// branch is exercised on every run, independent of the network
+// environment.
 func TestReasonForErrorClassifiesDialerTimeout(t *testing.T) {
 	t.Parallel()
 
-	d := &net.Dialer{Timeout: 500 * time.Millisecond}
+	d := &net.Dialer{Deadline: time.Now().Add(-time.Second)}
 
-	_, err := d.Dial("tcp", "192.0.2.1:5432") // TEST-NET-1, RFC 5737.
+	_, err := d.Dial("tcp", "127.0.0.1:1")
 	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Equal(t, common.ReasonHostUnreachable, conditions.ReasonForError(err))
+}
+
+// A dial canceled by the caller: the error surfaces through a
+// *net.OpError, but cancellation is unambiguously the caller's, so it must
+// classify as ConnectionFailed. The pre-canceled context makes the dial
+// return before any network I/O.
+func TestReasonForErrorClassifiesCanceledDial(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := (&net.Dialer{}).DialContext(ctx, "tcp", "127.0.0.1:1")
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, common.ReasonConnectionFailed, conditions.ReasonForError(err))
 }
 
 func TestReasonForErrorClassifiesTLSErrors(t *testing.T) {
@@ -409,6 +504,15 @@ func TestReasonForErrorClassifiesTLSErrors(t *testing.T) {
 		{
 			err:  tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"},
 			name: "tls record header error",
+		},
+		{
+			// 42 is bad_certificate; the alert values are unexported.
+			err:  tls.AlertError(42),
+			name: "tls peer alert",
+		},
+		{
+			err:  fmt.Errorf("handshake: %w", tls.AlertError(40)), // 40 is handshake_failure.
+			name: "wrapped tls peer alert",
 		},
 		{
 			err:  fmt.Errorf("handshake: %w", tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"}),
@@ -470,13 +574,6 @@ func TestRedactMasksPasswordMaterial(t *testing.T) {
 			name: "sslpassword key",
 			msg:  "connect: sslpassword=tlssecret dbname=registry",
 			want: "connect: sslpassword=REDACTED dbname=registry",
-		},
-		{
-			// Conservative tokenization: the query parameters following
-			// the password are consumed with it.
-			name: "URI query parameter",
-			msg:  "postgres://db.example.com/registry?password=abc123&sslmode=require",
-			want: "postgres://db.example.com/registry?password=REDACTED",
 		},
 	}
 
@@ -568,6 +665,76 @@ func TestRedactMasksURICredentials(t *testing.T) {
 			msg:  "postgres://modelregistry:pa/ss@db.example.com/registry",
 			want: "postgres://modelregistry:REDACTED@db.example.com/registry",
 		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "URI whose password contains a password parameter",
+			msg:  "postgres://u:prefix-password=xxx@host/db",
+			want: "postgres://u:REDACTED@host/db",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "URI password containing an at sign",
+			msg:  "postgres://user:p@ss@db.example.com/registry",
+			want: "postgres://user:REDACTED@db.example.com/registry",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "password containing a question mark",
+			msg:  "postgres://u:pa?ss@db.example.com/app",
+			want: "postgres://u:REDACTED@db.example.com/app",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+func TestRedactMasksURIQueryCredentials(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{
+			// Non-secret query fields are preserved; only the password
+			// field's value is replaced.
+			name: "query parameter",
+			msg:  "postgres://db.example.com/registry?password=abc123&sslmode=require",
+			want: "postgres://db.example.com/registry?password=REDACTED&sslmode=require",
+		},
+		{
+			// libpq percent-decodes query keys before lookup.
+			name: "percent-encoded key",
+			msg:  "postgres://db.example.com/registry?%70assword=abc123&sslmode=require",
+			want: "postgres://db.example.com/registry?%70assword=REDACTED&sslmode=require",
+		},
+		{
+			// DSN quoting rules do not apply to query values.
+			name: "quoted-looking value",
+			msg:  "postgres://db.example.com/registry?password='abc'def",
+			want: "postgres://db.example.com/registry?password=REDACTED",
+		},
+		{
+			// A key that cannot be decoded masks its value: redaction
+			// fails closed.
+			name: "undecodable key",
+			msg:  "postgres://db.example.com/registry?%zz=abc&password=def",
+			want: "postgres://db.example.com/registry?%zz=REDACTED&password=REDACTED",
+		},
+		{
+			name: "at sign in query is not userinfo",
+			msg:  "postgres://db.example.com:5432/registry?user=u@x",
+			want: "postgres://db.example.com:5432/registry?user=u@x",
+		},
+		{
+			name: "at sign in query value after a path",
+			msg:  "postgres://db/app?x=a@b",
+			want: "postgres://db/app?x=a@b",
+		},
 	}
 
 	for _, tc := range cases {
@@ -590,6 +757,7 @@ func TestRedactLeavesCleanMessagesUnchanged(t *testing.T) {
 		{"URI without password", "postgres://modelregistry@db.example.com:5432/registry"},
 		{"message without secrets", "dial tcp 10.0.0.5:5432: connect: connection refused"},
 		{"empty message", ""},
+		{"path at sign is not userinfo", "postgres://db:5432/team@east"},
 	}
 
 	for _, tc := range cases {
@@ -597,6 +765,358 @@ func TestRedactLeavesCleanMessagesUnchanged(t *testing.T) {
 			t.Parallel()
 
 			assert.Equal(t, tc.msg, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// libpq consumes a backslash followed by a newline as part of the value,
+// so escaped newlines are password material, not terminators.
+func TestRedactMasksEscapedNewlines(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{
+			name: "single-quoted with escaped newline",
+			msg:  "connect: password='p@''ss \\\nw0rd' dbname=registry",
+			want: "connect: password=REDACTED dbname=registry",
+		},
+		{
+			name: "double-quoted with escaped newline",
+			msg:  "connect: password=\"p@ss \\\nw0rd\" dbname=registry",
+			want: "connect: password=REDACTED dbname=registry",
+		},
+		{
+			name: "unquoted with escaped newline",
+			msg:  "connect: password=p@ss\\\nw0rd dbname=registry",
+			want: "connect: password=REDACTED dbname=registry",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// A password value containing an embedded scheme must be consumed whole:
+// the scanner must not treat a scheme inside the value as a new URI.
+func TestRedactMasksSchemeInPasswordValues(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{
+			name: "quoted DSN value",
+			msg:  "connect: password='ab://cd' dbname=x",
+			want: "connect: password=REDACTED dbname=x",
+		},
+		{
+			name: "unquoted DSN value",
+			msg:  "connect: password=ab://cd dbname=x",
+			want: "connect: password=REDACTED dbname=x",
+		},
+		{
+			name: "URI query value",
+			msg:  "postgres://h/db?password=ab://cd&sslmode=disable",
+			want: "postgres://h/db?password=REDACTED&sslmode=disable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// Multiple URIs can share one whitespace-delimited token, separated by
+// commas or semicolons: each URI in the token is masked.
+func TestRedactMasksMultipleURIs(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "comma-separated URIs",
+			msg:  "postgres://u:one@host,postgres://v:two@host",
+			want: "postgres://u:REDACTED@host,postgres://v:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "semicolon-separated URIs",
+			msg:  "postgres://u:one@host;postgres://v:two@host",
+			want: "postgres://u:REDACTED@host;postgres://v:REDACTED@host",
+		},
+		{
+			name: "comma-separated URIs with query on the last",
+			msg:  "postgres://u:one@host,postgres://host2/db?password=abc",
+			want: "postgres://u:REDACTED@host,postgres://host2/db?password=REDACTED",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// A password prefix that reads as a port must not exempt the authority
+// from userinfo recovery: the terminating @ a separator inside the
+// password hid is still found, whatever separator it hid behind.
+func TestRedactMasksPortShapedPasswordPrefixes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "question mark in password with a numeric prefix",
+			msg:  "postgres://u:12345?ss@host/db",
+			want: "postgres://u:REDACTED@host/db",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "question mark in password with a numeric prefix, pathless",
+			msg:  "postgres://u:12345?ss@host",
+			want: "postgres://u:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "hash in password with a numeric prefix, pathless",
+			msg:  "postgres://u:12#34@host",
+			want: "postgres://u:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "slash in password with a numeric prefix",
+			msg:  "postgres://u:12/34@host/db",
+			want: "postgres://u:REDACTED@host/db",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "hash in password with a numeric prefix",
+			msg:  "postgres://u:12#34@host/db",
+			want: "postgres://u:REDACTED@host/db",
+		},
+		{
+			name: "question mark in password with an empty user",
+			msg:  "postgres://:5432?x@host/db",
+			want: "postgres://:REDACTED@host/db",
+		},
+		{
+			name: "slash in password with an empty user",
+			msg:  "postgres://:5432/x@host/db",
+			want: "postgres://:REDACTED@host/db",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "later at sign in the query does not decoy the recovery",
+			msg:  "postgres://u:12345?ss@host/db?x=a@b",
+			want: "postgres://u:REDACTED@host/db?x=a@b",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// A password containing an @ makes an earlier candidate look like the
+// userinfo terminator: candidates are examined from the last @ backwards,
+// so the password material after an in-password @ is masked too.
+func TestRedactMasksAtSignInRecoveredPasswords(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "slash and at sign in password",
+			msg:  "postgres://u:12/ab@cd@host/db",
+			want: "postgres://u:REDACTED@host/db",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "question mark and at sign in password, pathless",
+			msg:  "postgres://u:12?ab@cd@host",
+			want: "postgres://u:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "hash and at sign in password",
+			msg:  "postgres://u:12#ab@cd@host/db",
+			want: "postgres://u:REDACTED@host/db",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// A host:port-shaped authority stays trusted when the later @ sits in
+// path or query material: nothing that a URI delimiter terminates
+// follows it, so the @ cannot mark a second host.
+func TestRedactPreservesHostPortWithLaterAtSign(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+	}{
+		{"at sign in query after a path", "postgres://db.example.com:5432/registry?user=u@x"},
+		{"at sign in path at the end", "postgres://db:5432/team@east"},
+		{"at sign in a query value", "postgres://db/app?x=a@b"},
+		{"query field with an at sign after a port", "postgres://h:42?user=u@x"},
+		{"fragment holding a field and an at sign after a port", "postgres://db:5432#user=u@x"},
+		{"at sign in a query after an IPv6 authority", "postgres://[::1]:5432/db?user=u@x"},
+		{"IPv6 authority with no userinfo", "postgres://[::1]:5432/db"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.msg, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// A scheme inside a non-secret value is skipped when the span boundary
+// is searched, not terminal: a later separator-preceded URI in the same
+// whitespace token is still masked.
+func TestRedactMasksLaterURIsAfterSchemeInValues(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "URL-valued query parameter before a comma-separated URI",
+			msg:  "postgres://u:one@host/db?application_name=http://example,postgres://v:two@host",
+			want: "postgres://u:REDACTED@host/db?application_name=http://example,postgres://v:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "URL-valued query parameter and a parameter before the URI",
+			msg:  "postgres://u:one@host/db?app=http://x,a=1,postgres://v:two@host",
+			want: "postgres://u:REDACTED@host/db?app=http://x,a=1,postgres://v:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "semicolon-separated URI after a URL-valued parameter",
+			msg:  "postgres://u:one@host/db?app=http://x;postgres://v:two@host",
+			want: "postgres://u:REDACTED@host/db?app=http://x;postgres://v:REDACTED@host",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "scheme in a path value before a comma-separated URI",
+			msg:  "postgres://u:one@host/path://x,postgres://v:two@host",
+			want: "postgres://u:REDACTED@host/path://x,postgres://v:REDACTED@host",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// Credentials nested in the value of a non-secret query field — a URI
+// holding userinfo or a password parameter — are masked recursively;
+// values without password material are preserved.
+func TestRedactMasksNestedCredentialsInQueryValues(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{
+			name: "password parameter in a nested URI value",
+			msg:  "postgres://h/db?appname=http://x?password=secret",
+			want: "postgres://h/db?appname=http://x?password=REDACTED",
+		},
+		{ //nolint:gosec // fixture credential, not a real secret
+			name: "userinfo in a nested URI value",
+			msg:  "postgres://h/db?appname=http://u:p@x",
+			want: "postgres://h/db?appname=http://u:REDACTED@x",
+		},
+		{
+			name: "non-secret URL value is preserved",
+			msg:  "postgres://h/db?appname=http://example.com/x",
+			want: "postgres://h/db?appname=http://example.com/x",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
+		})
+	}
+}
+
+// A bare query field — no key/value separator — that follows a password
+// field is password material the value's own separator split: it is
+// absorbed and masked, failing closed. Bare fields elsewhere are
+// preserved.
+func TestRedactMasksPasswordSplitByBareField(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		msg  string
+		want string
+	}{
+		{
+			name: "password value split by an ampersand",
+			msg:  "postgres://h/db?password=se&cret",
+			want: "postgres://h/db?password=REDACTED&REDACTED",
+		},
+		{
+			name: "absorbed split followed by a regular field",
+			msg:  "postgres://h/db?password=se&cret&app=1",
+			want: "postgres://h/db?password=REDACTED&REDACTED&app=1",
+		},
+		{
+			name: "bare flag after a non-password field is preserved",
+			msg:  "postgres://h/db?sslmode=require&flag",
+			want: "postgres://h/db?sslmode=require&flag",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, conditions.Redact(tc.msg))
 		})
 	}
 }
@@ -618,6 +1138,13 @@ func TestRedactIdempotent(t *testing.T) {
 	once := conditions.Redact(msg)
 
 	assert.Equal(t, once, conditions.Redact(once))
+
+	// The recovered, split and nested shapes are idempotent too.
+	nested := "postgres://u:12345?ss@host/db?appname=http://u:p@x&password=se&cret"
+
+	nestedOnce := conditions.Redact(nested)
+
+	assert.Equal(t, nestedOnce, conditions.Redact(nestedOnce))
 }
 
 func TestLastTransitionTimeSemantics(t *testing.T) {
