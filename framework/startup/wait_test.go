@@ -1,4 +1,4 @@
-package claim_test
+package startup_test
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/opendatahub-io/odh-platform-utilities/framework/claim"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/startup"
 )
 
 var (
@@ -65,11 +65,11 @@ func TestWaitForClaimProvisioned(t *testing.T) {
 
 	t.Run("DatabaseClaim", func(t *testing.T) {
 		t.Parallel()
-		testClaimWait(t, "DatabaseClaim", "databaseclaims", "database claim", claim.WaitForDatabaseClaimProvisioned)
+		testClaimWait(t, "DatabaseClaim", "databaseclaims", "database claim", startup.WaitForDatabaseClaimProvisioned)
 	})
 	t.Run("SchemaClaim", func(t *testing.T) {
 		t.Parallel()
-		testClaimWait(t, "SchemaClaim", "schemaclaims", "schema claim", claim.WaitForSchemaClaimProvisioned)
+		testClaimWait(t, "SchemaClaim", "schemaclaims", "schema claim", startup.WaitForSchemaClaimProvisioned)
 	})
 }
 
@@ -135,7 +135,7 @@ func TestWaitForSchemaClaimProvisionedRetries(t *testing.T) {
 		return nil
 	}}
 
-	err := claim.WaitForSchemaClaimProvisioned(t.Context(), reader, "consumer", "app-claim", 5*time.Second)
+	err := startup.WaitForSchemaClaimProvisioned(t.Context(), reader, "consumer", "app-claim", 5*time.Second)
 	require.NoError(t, err)
 	require.Equal(t, int32(2), reads.Load())
 }
@@ -143,10 +143,10 @@ func TestWaitForSchemaClaimProvisionedRetries(t *testing.T) {
 func TestWaitForSchemaClaimProvisionedInputAndCancellation(t *testing.T) {
 	t.Parallel()
 
-	err := claim.WaitForSchemaClaimProvisioned(t.Context(), nil, "", "app-claim", time.Second)
+	err := startup.WaitForSchemaClaimProvisioned(t.Context(), nil, "", "app-claim", time.Second)
 	require.ErrorContains(t, err, "namespace and name are required")
 
-	err = claim.WaitForSchemaClaimProvisioned(t.Context(), nil, "consumer", "app-claim", 0)
+	err = startup.WaitForSchemaClaimProvisioned(t.Context(), nil, "consumer", "app-claim", 0)
 	require.ErrorContains(t, err, "wait timeout must be positive")
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -156,6 +156,6 @@ func TestWaitForSchemaClaimProvisionedInputAndCancellation(t *testing.T) {
 		return errUnexpectedRequest
 	}}
 
-	err = claim.WaitForSchemaClaimProvisioned(ctx, reader, "consumer", "app-claim", time.Second)
+	err = startup.WaitForSchemaClaimProvisioned(ctx, reader, "consumer", "app-claim", time.Second)
 	require.ErrorIs(t, err, context.Canceled)
 }

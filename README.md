@@ -79,9 +79,9 @@ go get github.com/opendatahub-io/odh-platform-utilities/framework
 | Package | Description |
 |---------|-------------|
 | `api` | Re-exports root-module platform types plus framework-specific `Release` and `Platform` types |
-| `claim` | Optional bounded readiness waits for `DatabaseClaim` and `SchemaClaim` |
 | `cluster` | CRD existence checks, API availability, singleton listing |
 | `cluster/gvk` | Well-known `GroupVersionKind` constants (Deployment, ClusterRole, monitoring CRDs, etc.) |
+| `startup` | Optional bounded readiness waits for `DatabaseClaim` and `SchemaClaim` |
 | `tls` | `controller-runtime-common` TLS primitives plus ODH adherence policy, strict validation, TLS 1.2 cipher filtering, and proxy flags |
 | `controller/reconciler` | Generic `Reconciler` with finalizer management, condition aggregation, phase computation, and status SSA |
 | `controller/actions` | Action function type (`Fn`) used to build reconciliation pipelines |

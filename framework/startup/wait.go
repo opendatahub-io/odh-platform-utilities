@@ -1,5 +1,5 @@
-// Package claim provides optional readiness helpers for DatabaseClaim and SchemaClaim consumers.
-package claim
+// Package startup provides optional readiness checks for DatabaseClaim and SchemaClaim consumers.
+package startup
 
 import (
 	"context"

@@ -112,13 +112,13 @@ the box.
 framework/
   api/                          Re-exports root-module platform types;
                                 adds Release, Platform types.
-  claim/                        Optional bounded waits for DatabaseClaim and
-                                SchemaClaim Provisioned conditions.
   cluster/                      CRD existence checks, API availability,
                                 singleton listing (HasCRD, IsAPIAvailable,
                                 ListGVK).
     gvk/                        Well-known GroupVersionKind constants
                                 (Deployment, ClusterRole, monitoring CRDs).
+  startup/                      Optional bounded waits for DatabaseClaim and
+                                SchemaClaim Provisioned conditions.
   controller/
     reconciler/                 Generic Reconciler with:
                                 - Finalizer management (add/remove)

@@ -1,4 +1,4 @@
-package claim_test
+package startup_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/opendatahub-io/odh-platform-utilities/framework/claim"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/startup"
 )
 
 func ExampleWaitForDatabaseClaimProvisioned() {
@@ -16,7 +16,7 @@ func ExampleWaitForDatabaseClaimProvisioned() {
 		return nil
 	}}
 
-	err := claim.WaitForDatabaseClaimProvisioned(context.Background(), reader, "consumer", "app-claim", time.Minute)
+	err := startup.WaitForDatabaseClaimProvisioned(context.Background(), reader, "consumer", "app-claim", time.Minute)
 	fmt.Println(err)
 	// Output: <nil>
 }
@@ -27,7 +27,7 @@ func ExampleWaitForSchemaClaimProvisioned() {
 		return nil
 	}}
 
-	err := claim.WaitForSchemaClaimProvisioned(context.Background(), reader, "consumer", "app-claim", time.Minute)
+	err := startup.WaitForSchemaClaimProvisioned(context.Background(), reader, "consumer", "app-claim", time.Minute)
 	fmt.Println(err)
 	// Output: <nil>
 }

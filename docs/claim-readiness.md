@@ -5,8 +5,8 @@ does for other component dependencies. It does not guarantee that a consumer
 starts only after a database connection is usable. The database service reports
 `Provisioned=True` on a `DatabaseClaim` or `SchemaClaim` after provisioning its
 credentials. Consumers that need a stronger startup gate can opt in to
-`claim.WaitForDatabaseClaimProvisioned` or
-`claim.WaitForSchemaClaimProvisioned`.
+`startup.WaitForDatabaseClaimProvisioned` or
+`startup.WaitForSchemaClaimProvisioned`.
 
 The helper reads a named claim in its namespace until its `Provisioned`
 condition is `True`. It retries while the claim is missing or not provisioned,
@@ -33,7 +33,7 @@ import (
     "os"
     "time"
 
-    "github.com/opendatahub-io/odh-platform-utilities/framework/claim"
+    "github.com/opendatahub-io/odh-platform-utilities/framework/startup"
     "sigs.k8s.io/controller-runtime/pkg/client"
     "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -44,7 +44,7 @@ func main() {
         log.Fatal(err)
     }
 
-    err = claim.WaitForDatabaseClaimProvisioned(
+    err = startup.WaitForDatabaseClaimProvisioned(
         context.Background(), kubeClient,
         os.Getenv("POD_NAMESPACE"), os.Getenv("DATABASE_CLAIM_NAME"),
         5*time.Minute,
@@ -69,7 +69,7 @@ ServiceAccount `get` permission on that `SchemaClaim` in the same namespace,
 then call:
 
 ```go
-err = claim.WaitForSchemaClaimProvisioned(
+err = startup.WaitForSchemaClaimProvisioned(
     context.Background(), kubeClient,
     os.Getenv("POD_NAMESPACE"), os.Getenv("SCHEMA_CLAIM_NAME"),
     5*time.Minute,
