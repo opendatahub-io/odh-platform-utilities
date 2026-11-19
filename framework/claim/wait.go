@@ -14,9 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/controller/conditions"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/api"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/cluster/gvk"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/controller/conditions"
 )
+
+const provisionedCondition = "Provisioned"
 
 var (
 	errMissingIdentity = errors.New("namespace and name are required")
@@ -30,7 +33,7 @@ var (
 func WaitForDatabaseClaimProvisioned(
 	ctx context.Context, reader client.Reader, namespace, name string, timeout time.Duration,
 ) error {
-	return waitForProvisioned(ctx, reader, namespace, name, "DatabaseClaim", "database claim", timeout)
+	return waitForCondition(ctx, reader, namespace, name, gvk.DatabaseClaim, provisionedCondition, "database claim", timeout)
 }
 
 // WaitForSchemaClaimProvisioned blocks until the named SchemaClaim reports
@@ -40,11 +43,12 @@ func WaitForDatabaseClaimProvisioned(
 func WaitForSchemaClaimProvisioned(
 	ctx context.Context, reader client.Reader, namespace, name string, timeout time.Duration,
 ) error {
-	return waitForProvisioned(ctx, reader, namespace, name, "SchemaClaim", "schema claim", timeout)
+	return waitForCondition(ctx, reader, namespace, name, gvk.SchemaClaim, provisionedCondition, "schema claim", timeout)
 }
 
-func waitForProvisioned(
-	ctx context.Context, reader client.Reader, namespace, name, kind, label string, timeout time.Duration,
+func waitForCondition(
+	ctx context.Context, reader client.Reader, namespace, name string,
+	resourceGVK schema.GroupVersionKind, conditionType, label string, timeout time.Duration,
 ) error {
 	if namespace == "" || name == "" {
 		return fmt.Errorf("%s: %w", label, errMissingIdentity)
@@ -55,7 +59,7 @@ func waitForProvisioned(
 	}
 
 	err := wait.PollUntilContextTimeout(ctx, time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-		return isProvisioned(ctx, reader, namespace, name, kind, label)
+		return isConditionTrue(ctx, reader, namespace, name, resourceGVK, conditionType, label)
 	})
 	if err == nil {
 		return nil
@@ -66,19 +70,18 @@ func waitForProvisioned(
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s %s/%s was not Provisioned within %s: %w", label, namespace, name, timeout, err)
+		return fmt.Errorf("%s %s/%s was not %s within %s: %w", label, namespace, name, conditionType, timeout, err)
 	}
 
 	return err
 }
 
-func isProvisioned(
-	ctx context.Context, reader client.Reader, namespace, name, kind, label string,
+func isConditionTrue(
+	ctx context.Context, reader client.Reader, namespace, name string,
+	resourceGVK schema.GroupVersionKind, conditionType, label string,
 ) (bool, error) {
 	object := &unstructured.Unstructured{}
-	object.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "infrastructure.opendatahub.io", Version: "v1alpha1", Kind: kind,
-	})
+	object.SetGroupVersionKind(resourceGVK)
 
 	err := reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, object)
 	if apierrors.IsNotFound(err) {
@@ -98,12 +101,12 @@ func isProvisioned(
 		return false, nil
 	}
 
-	var status common.Status
+	var status api.Status
 
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(statusRaw, &status)
 	if err != nil {
 		return false, fmt.Errorf("decode %s %s/%s status: %w", label, namespace, name, err)
 	}
 
-	return conditions.IsStatusConditionTrue(&status, "Provisioned"), nil
+	return conditions.IsStatusConditionTrue(&status, conditionType), nil
 }

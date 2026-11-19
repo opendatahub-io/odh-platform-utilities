@@ -33,7 +33,7 @@ import (
     "os"
     "time"
 
-    "github.com/opendatahub-io/odh-platform-utilities/pkg/claim"
+    "github.com/opendatahub-io/odh-platform-utilities/framework/claim"
     "sigs.k8s.io/controller-runtime/pkg/client"
     "sigs.k8s.io/controller-runtime/pkg/client/config"
 )

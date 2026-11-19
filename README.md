@@ -53,7 +53,6 @@ pipeline out of the box.
 | `pkg/cluster` | Cluster type detection, FIPS detection, platform variant detection, CRD existence checks; functional options for labels, annotations, owner references |
 | `pkg/cluster/openshift` | OpenShift-specific queries: version, SNO, auth mode, domain |
 | `pkg/cluster/olm` | OLM-specific queries: operator existence, subscription lookup |
-| `pkg/claim` | Optional bounded readiness waits for `DatabaseClaim` and `SchemaClaim` |
 | `pkg/webhook` | Admission webhook helpers for singleton validation (`ValidateSingletonCreation`) |
 | `pkg/render/helm` | Helm chart renderer -- standalone function and action-pipeline adapter |
 | `pkg/render/kustomize` | Kustomize overlay renderer with built-in namespace/label/annotation plugins |
@@ -80,6 +79,7 @@ go get github.com/opendatahub-io/odh-platform-utilities/framework
 | Package | Description |
 |---------|-------------|
 | `api` | Re-exports root-module platform types plus framework-specific `Release` and `Platform` types |
+| `claim` | Optional bounded readiness waits for `DatabaseClaim` and `SchemaClaim` |
 | `cluster` | CRD existence checks, API availability, singleton listing |
 | `cluster/gvk` | Well-known `GroupVersionKind` constants (Deployment, ClusterRole, monitoring CRDs, etc.) |
 | `tls` | `controller-runtime-common` TLS primitives plus ODH adherence policy, strict validation, TLS 1.2 cipher filtering, and proxy flags |

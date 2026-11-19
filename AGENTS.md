@@ -63,8 +63,6 @@ pkg/
   cluster/         Singleton enforcement, metadata options, dynamic ownership
                    (GetSingleton[T], MetaOptions, OwnerRefFrom, ControlledBy,
                    OwnedBy, WithOwnerAnnotations, EnqueueByOwnerAnnotation).
-  claim/           Optional bounded waits for DatabaseClaim and SchemaClaim
-                   Provisioned conditions.
   status/          Safe status subresource updates with automatic conflict
                    retry (Update[T]).
   deploy/          Resource deployment utilities: SSA/patch deploy with
@@ -114,6 +112,8 @@ the box.
 framework/
   api/                          Re-exports root-module platform types;
                                 adds Release, Platform types.
+  claim/                        Optional bounded waits for DatabaseClaim and
+                                SchemaClaim Provisioned conditions.
   cluster/                      CRD existence checks, API availability,
                                 singleton listing (HasCRD, IsAPIAvailable,
                                 ListGVK).

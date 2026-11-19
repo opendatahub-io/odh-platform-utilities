@@ -7,7 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/claim"
+	"github.com/opendatahub-io/odh-platform-utilities/framework/claim"
 )
 
 func ExampleWaitForDatabaseClaimProvisioned() {
