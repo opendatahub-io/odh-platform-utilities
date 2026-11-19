@@ -689,6 +689,18 @@ var (
 		Kind:    "CoreWeaveKubernetesEngine",
 	}
 
+	DatabaseClaim = schema.GroupVersionKind{
+		Group:   "infrastructure.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "DatabaseClaim",
+	}
+
+	SchemaClaim = schema.GroupVersionKind{
+		Group:   "infrastructure.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "SchemaClaim",
+	}
+
 	SparkApplication = schema.GroupVersionKind{
 		Group:   "sparkoperator.k8s.io",
 		Version: "v1beta2",

@@ -117,6 +117,8 @@ framework/
                                 ListGVK).
     gvk/                        Well-known GroupVersionKind constants
                                 (Deployment, ClusterRole, monitoring CRDs).
+  startup/                      Optional bounded waits for DatabaseClaim and
+                                SchemaClaim Provisioned conditions.
   controller/
     reconciler/                 Generic Reconciler with:
                                 - Finalizer management (add/remove)
