@@ -3,8 +3,9 @@
 `framework/postgres` is the shared consumer of the claim-Secret contract.
 A DatabaseClaim or SchemaClaim Secret stores discrete fields (`host`, `port`,
 `user`, `password`, `dbname`, `sslmode`, optional `schema` and `ca.crt`). There
-is no pre-composed URI: this package validates those fields and either opens a
-pgx connection or composes a driver-correct string.
+is no pre-composed URI: this package validates those fields and exposes
+driver-neutral configuration. Callers pass that config into their own PostgreSQL
+driver (pgx, `database/sql`, JDBC, libpq, and so on).
 
 ```go
 import "github.com/opendatahub-io/odh-platform-utilities/framework/postgres"
@@ -20,14 +21,14 @@ Choose one path after parse:
 
 | Caller | Path |
 |--------|------|
-| This process talks to Postgres (controller, job) | `Connect` |
+| This process talks to Postgres (controller, job) | `TLSConfig` plus the driver's connect API |
 | Another process needs a string (`psql`, pgJDBC, sidecar) | `WriteCACert` then `Libpq` or `JDBC` |
 
 ## sslmode
 
 Parse allows empty `sslmode` so administrator-authored Secrets still load.
-`Connect` and `TLSConfig` reject empty `sslmode` so pgx cannot fall back to
-`prefer` (TLS, then plaintext). Set an explicit default before those calls.
+`TLSConfig` rejects empty `sslmode` so callers cannot inherit libpq `prefer`
+(TLS, then plaintext). Set an explicit default before that call.
 
 | Value | Meaning |
 |-------|---------|
@@ -39,10 +40,11 @@ Parse allows empty `sslmode` so administrator-authored Secrets still load.
 Promotion of `require` plus CA keeps Go, libpq, and JDBC on the same trust
 posture.
 
-## ParseClaimSecret → Connect
+## ParseClaimSecret → TLSConfig
 
-`Connect` applies TLS from `ca.crt` in memory (no temp file) and sets
-`search_path` when `schema` is present. Close the connection when finished.
+`TLSConfig` applies TLS from `ca.crt` in memory (no temp file). Pass the
+returned `*tls.Config` into the driver's TLS option. Apply `params.Schema` as
+`search_path` (or the driver's equivalent) when it is set.
 
 ```go
 params, err := postgres.ParseClaimSecret(secret)
@@ -52,11 +54,11 @@ if err != nil {
 if params.SSLMode == "" {
     params.SSLMode = postgres.SSLModeRequire // or SSLModeDisable in-cluster
 }
-conn, err := postgres.Connect(ctx, params)
+tlsCfg, err := params.TLSConfig()
 if err != nil {
     return err
 }
-defer conn.Close(ctx)
+_ = tlsCfg // pass to the driver's TLS option
 ```
 
 ## WriteCACert → Libpq / JDBC
@@ -82,11 +84,13 @@ if params.SSLMode == "" {
     params.SSLMode = postgres.SSLModeRequire // or SSLModeDisable in-cluster
 }
 
-caFile, cleanup, err := params.WriteCACert("")
+// Shared volume mounted in this container and the sidecar (not WriteCACert("")).
+caFile, cleanup, err := params.WriteCACert("/etc/db-trust")
 if err != nil {
     return err
 }
-defer cleanup()
+// Keep the CA file for the consumer's lifetime; call cleanup only after the
+// sidecar stops using the string (including reconnects).
 
 libpq, err := params.Libpq(caFile)
 if err != nil {

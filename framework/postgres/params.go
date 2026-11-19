@@ -1,3 +1,5 @@
+// Package postgres parses claim Secrets into connection configuration.
+// Callers apply Params, TLSConfig, or Libpq/JDBC strings to their own driver.
 package postgres
 
 import (
@@ -24,10 +26,9 @@ var (
 	ErrUnsupportedSSLMode = errors.New("unsupported sslmode")
 	// ErrCARequired is returned when verify-ca or verify-full is set without ca.crt.
 	ErrCARequired = errors.New("sslmode requires ca.crt")
-	// ErrSSLModeRequired is returned by TLSConfig (and Connect) when
-	// sslmode is empty. Parse/Libpq/JDBC still allow empty sslmode so callers
-	// can apply their own default; opening a live connection must not inherit
-	// pgx's prefer behavior.
+	// ErrSSLModeRequired is returned by TLSConfig when sslmode is empty.
+	// Parse/Libpq/JDBC still allow empty sslmode so callers can apply their
+	// own default; live TLS must not inherit libpq prefer (TLS, then plaintext).
 	ErrSSLModeRequired = errors.New("sslmode is required")
 	// ErrInvalidConnectionType is returned when the connection-type annotation is present
 	// but is not postgres.
@@ -119,7 +120,7 @@ func ParseClaimSecret(secret *corev1.Secret) (Params, error) {
 // Validate checks required fields, port range, sslmode, schema identifier shape,
 // and TLS trust readiness for verify modes. Empty sslmode is allowed here so
 // administrator-authored Secrets can omit it; callers must set an explicit
-// default before TLSConfig or Connect. Empty schema is allowed.
+// default before TLSConfig. Empty schema is allowed.
 // Errors name Secret keys and never include the password value.
 func (p Params) Validate() error {
 	for _, field := range [...]struct {
@@ -159,10 +160,10 @@ func (p Params) Validate() error {
 
 func validateHost(p Params) error {
 	// Claim Secrets are single-host; reject multi-host lists, brackets, and URL
-	// delimiters so Connect cannot fall back to a host without claim-CA
-	// TLSConfig, JDBC cannot treat path/query fragments as params, and pgx
-	// cannot strip [hostname] brackets and dial the inner name. Bare IPv6
-	// (e.g. ::1) stays unbracketed; JoinHostPort adds brackets when needed.
+	// delimiters so JDBC cannot treat path/query fragments as params and
+	// JoinHostPort / TLSConfig cannot dial a different name than the claim CA
+	// covers. Bare IPv6 (e.g. ::1) stays unbracketed; JoinHostPort adds
+	// brackets when needed.
 	if strings.ContainsAny(p.Host, ",/?#@&[]") {
 		return fmt.Errorf("invalid %s: must be a single host without URL delimiters: %w",
 			SecretKeyHost, ErrInvalidHost)

@@ -16,7 +16,7 @@ const (
 	SecretKeyCA = "ca.crt"
 	// SecretKeySSLMode holds the libpq sslmode value (e.g. "disable", "require",
 	// "verify-full"). Optional for parse/Libpq/JDBC; callers default it before
-	// TLSConfig/Connect (Internal: disable, External: require).
+	// TLSConfig (Internal: disable, External: require).
 	SecretKeySSLMode = "sslmode"
 
 	// DefaultPort is the standard PostgreSQL port, used when port is absent.
