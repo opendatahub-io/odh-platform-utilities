@@ -34,6 +34,11 @@
 // Module controllers must set these conditions to participate in
 // cluster-wide health aggregation.
 //
+// [ConditionTypeDatabaseConnected] is an optional, recommended type for
+// modules that consume a database: it reports connectivity on the module's
+// own CR, using the database reason constants defined alongside it. The
+// orchestrator does not require or evaluate it.
+//
 // # Phases
 //
 // [PhaseReady] and [PhaseNotReady] are the two phase values the orchestrator
