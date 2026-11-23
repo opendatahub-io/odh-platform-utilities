@@ -116,6 +116,28 @@ status aggregation.
 | `True` | All manifests applied successfully |
 | `False` | Manifest application failed |
 
+## Optional Condition Types
+
+These types are published and recommended but **not** evaluated by the
+orchestrator. Module controllers set them to expose component-specific
+health with a shared vocabulary instead of inventing parallel condition
+names.
+
+### `DatabaseConnected` (`ConditionTypeDatabaseConnected`)
+
+Reports the module's connectivity to its database, as defined by
+[ODH-ADR-Operator-0017](https://github.com/opendatahub-io/architecture-decision-records/blob/main/architecture-decision-records/operator/ODH-ADR-Operator-0017-shared-database-infrastructure-service.md).
+Set it from a controller with the helpers in
+`pkg/database/conditions`; see
+[database-connection-conditions.md](database-connection-conditions.md) for
+usage.
+
+| Status | Meaning |
+|--------|---------|
+| `True` | Last connection attempt succeeded |
+| `False` | Last connection attempt failed (reason carries the cause) |
+| `Unknown` | Not checked yet |
+
 ## How the Orchestrator Reads These
 
 The orchestrator evaluates module CRs in the following order:
