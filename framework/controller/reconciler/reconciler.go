@@ -70,9 +70,10 @@ func getChartsBasePath(mgr manager.Manager) string {
 // It returns true to stop reconciliation (skip actions).
 type PreApplyFn func(ctx context.Context, rr *types.ReconciliationRequest) bool
 
-// PostStatusFn is a callback invoked after conditions and phase have been
-// computed but before the SSA status write. It can set custom status fields
-// on rr.Instance based on the authoritative isHappy value.
+// PostStatusFn is a callback invoked after conditions, phase, and
+// ObservedGeneration have been computed but before the SSA status write. It
+// can set custom status fields on rr.Instance based on the authoritative
+// isHappy value.
 // Note: when skipStatusConditionsFn is active, Phase, Conditions, and
 // ObservedGeneration are reset after this hook runs.
 type PostStatusFn func(ctx context.Context, rr *types.ReconciliationRequest, isHappy bool) error
@@ -144,9 +145,10 @@ func WithSkipConditionCleanup() ReconcilerOpt {
 	}
 }
 
-// WithPostStatusFn sets a callback that runs after conditions/phase are computed
-// but before the SSA status write. The hook receives the final isHappy value
-// and can modify any field on rr.Instance before it is written.
+// WithPostStatusFn sets a callback that runs after conditions, phase, and
+// ObservedGeneration are computed but before the SSA status write. The hook
+// receives the final isHappy value and can modify any field on rr.Instance
+// before it is written.
 func WithPostStatusFn(fn PostStatusFn) ReconcilerOpt {
 	return func(reconciler *Reconciler) {
 		reconciler.postStatusFn = fn
@@ -604,8 +606,12 @@ func (r *Reconciler) apply(ctx context.Context, res api.PlatformObject) (time.Du
 	isHappy := rr.Conditions.IsHappy()
 	if isHappy {
 		is.Phase = r.phaseReady
-		is.ObservedGeneration = rr.Instance.GetGeneration()
 	}
+
+	// Stamp the generation this reconcile processed. Phase and conditions
+	// report readiness separately: a lagging ObservedGeneration means the
+	// generation has not been processed yet, not that it is Not Ready.
+	is.ObservedGeneration = rr.Instance.GetGeneration()
 
 	if r.postStatusFn != nil {
 		if err := r.postStatusFn(ctx, &rr, isHappy); err != nil {

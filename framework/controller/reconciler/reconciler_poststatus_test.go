@@ -81,6 +81,57 @@ func newPostStatusTestReconciler(
 	}
 }
 
+func TestApplySetsObservedGenerationRegardlessOfReadiness(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		actionErr error
+		wantErr   string
+		wantPhase string
+	}{
+		{
+			name:      "ready generation is recorded",
+			wantPhase: DefaultPhaseReady,
+		},
+		{
+			name:      "not ready generation is still recorded",
+			actionErr: errors.New("gateway not ready"),
+			wantErr:   "provisioning failed",
+			wantPhase: DefaultPhaseNotReady,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			r := newPostStatusTestReconciler(
+				&mockRecorder{},
+				func(_ context.Context, _ *types.ReconciliationRequest) error {
+					return tt.actionErr
+				},
+				nil,
+			)
+
+			obj := newConditionAwareObject()
+			obj.SetGeneration(2)
+			obj.GetStatus().ObservedGeneration = 1
+
+			_, err := r.apply(t.Context(), obj)
+			if tt.wantErr != "" {
+				g.Expect(err).Should(MatchError(ContainSubstring(tt.wantErr)))
+			} else {
+				g.Expect(err).ShouldNot(HaveOccurred())
+			}
+
+			g.Expect(obj.GetStatus().Phase).To(Equal(tt.wantPhase))
+			g.Expect(obj.GetStatus().ObservedGeneration).To(Equal(int64(2)))
+		})
+	}
+}
+
 func TestPostStatusFn(t *testing.T) {
 	t.Parallel()
 
@@ -185,9 +236,11 @@ func TestPostStatusFn(t *testing.T) {
 		r.skipStatusConditionsFn = func() bool { return true }
 
 		obj := newConditionAwareObject()
+		obj.SetGeneration(2)
 		_, err := r.apply(ctx, obj)
 		g.Expect(err).ShouldNot(HaveOccurred())
 		g.Expect(obj.GetStatus().Phase).To(Equal(""))
+		g.Expect(obj.GetStatus().ObservedGeneration).To(Equal(int64(0)))
 	})
 
 	t.Run("nil hook does not panic", func(t *testing.T) {
