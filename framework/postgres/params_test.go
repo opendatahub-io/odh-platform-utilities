@@ -174,10 +174,29 @@ func TestParseSecretData_UnsupportedSSLMode(t *testing.T) {
 	t.Parallel()
 
 	data := validSecretData()
-	data[postgres.SecretKeySSLMode] = []byte("prefer")
+	data[postgres.SecretKeySSLMode] = []byte("not-a-mode")
 	_, err := postgres.ParseSecretData(data)
 	require.Error(t, err)
+	require.ErrorIs(t, err, postgres.ErrUnsupportedSSLMode)
 	assert.Contains(t, err.Error(), postgres.SecretKeySSLMode)
+}
+
+func TestParseSecretData_PreferAndAllowAccepted(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{postgres.SSLModePrefer, postgres.SSLModeAllow} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			data := validSecretData()
+			data[postgres.SecretKeySSLMode] = []byte(mode)
+			p, err := postgres.ParseSecretData(data)
+			require.NoError(t, err)
+			assert.Equal(t, mode, p.SSLMode)
+			assert.True(t, p.TLSEnabled())
+			assert.True(t, p.TLSReady())
+		})
+	}
 }
 
 func TestParseSecretData_InvalidSchemaRejected(t *testing.T) {

@@ -33,6 +33,8 @@ Parse allows empty `sslmode` so administrator-authored Secrets still load.
 | Value | Meaning |
 |-------|---------|
 | `SSLModeDisable` | No TLS. Typical default for in-cluster traffic. |
+| `SSLModeAllow` | Opportunistic plaintext-first. Preserved in Libpq/JDBC; TLSConfig treats like bare require. |
+| `SSLModePrefer` | Opportunistic TLS-first. Preserved in Libpq/JDBC; TLSConfig treats like bare require. |
 | `SSLModeRequire` | Encrypt only. Typical default for external traffic. With `ca.crt`, promoted to `verify-ca`. |
 | `SSLModeVerifyCA` | Encrypt and verify the server chain. Requires `ca.crt`. Does not check hostname. |
 | `SSLModeVerifyFull` | Encrypt, verify the chain, and check hostname. Requires `ca.crt`. |

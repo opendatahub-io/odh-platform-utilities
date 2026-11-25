@@ -115,7 +115,7 @@ func applySSLMode(cfg *tls.Config, mode string) {
 	case SSLModeVerifyFull:
 		cfg.InsecureSkipVerify = false
 		cfg.VerifyPeerCertificate = nil
-	case SSLModeRequire:
+	case SSLModeRequire, SSLModePrefer, SSLModeAllow:
 		// nosemgrep: go-tls-bypass -- intentional libpq require; no peer verify without CA.
 		cfg.InsecureSkipVerify = true
 		cfg.VerifyPeerCertificate = nil

@@ -26,6 +26,8 @@ const (
 
 	// SSLModeDisable disables TLS.
 	SSLModeDisable = "disable"
+	SSLModeAllow   = "allow"
+	SSLModePrefer  = "prefer"
 	// SSLModeRequire encrypts only (libpq). With ca.crt, promoted to verify-ca.
 	SSLModeRequire = "require"
 	// SSLModeVerifyCA verifies the server certificate chain but not the hostname.

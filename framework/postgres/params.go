@@ -181,7 +181,7 @@ func validateHost(p Params) error {
 
 func validateSSLMode(p Params) error {
 	switch p.SSLMode {
-	case "", SSLModeDisable, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
+	case "", SSLModeDisable, SSLModeAllow, SSLModePrefer, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
 	default:
 		return fmt.Errorf("unsupported %s value %q: %w", SecretKeySSLMode, p.SSLMode, ErrUnsupportedSSLMode)
 	}
@@ -220,7 +220,8 @@ func (p Params) TLSReady() bool {
 }
 
 // requireSSLMode fails closed when sslmode is absent. Used by TLSConfig so
-// callers never inherit libpq prefer (TLS-then-plaintext).
+// callers never inherit an unspecified driver default. An explicit Secret
+// prefer/allow value is valid and must be set by the caller or Secret.
 func (p Params) requireSSLMode() error {
 	if p.SSLMode == "" {
 		return fmt.Errorf("missing or empty key %q in Secret: %w", SecretKeySSLMode, ErrSSLModeRequired)

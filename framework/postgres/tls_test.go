@@ -223,6 +223,24 @@ func TestTLSConfig_RequireWithoutCA(t *testing.T) {
 	assert.Nil(t, cfg.VerifyPeerCertificate)
 }
 
+func TestTLSConfig_PreferAllowEncryptOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{postgres.SSLModePrefer, postgres.SSLModeAllow} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			p := baseParams()
+			p.SSLMode = mode
+			cfg, err := p.TLSConfig()
+			require.NoError(t, err)
+			require.NotNil(t, cfg)
+			assert.True(t, cfg.InsecureSkipVerify)
+			assert.Nil(t, cfg.VerifyPeerCertificate)
+		})
+	}
+}
+
 func TestTLSConfig_RequireWithCAPromotesToVerifyCA(t *testing.T) {
 	t.Parallel()
 

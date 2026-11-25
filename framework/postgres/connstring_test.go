@@ -79,6 +79,29 @@ func TestLibpq_GSSEncModeOnlyWhenTLSRequired(t *testing.T) {
 	assert.Contains(t, sRequire, "gssencmode='disable'")
 }
 
+func TestLibpq_PreferAndAllowPreserved(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{postgres.SSLModePrefer, postgres.SSLModeAllow} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			p := baseParams()
+			p.SSLMode = mode
+			p.CACert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+			s, err := p.Libpq("")
+			require.NoError(t, err)
+			assert.Contains(t, s, "sslmode='"+mode+"'")
+			assert.NotContains(t, s, "sslmode='require'")
+			assert.NotContains(t, s, "sslmode='disable'")
+			assert.NotContains(t, s, "sslmode='verify-ca'")
+			assert.NotContains(t, s, "sslrootcert=")
+			assert.Contains(t, s, "gssencmode='disable'")
+		})
+	}
+}
+
 func TestLibpq_EmptyCAFileRejectedWhenNeeded(t *testing.T) {
 	t.Parallel()
 
@@ -140,6 +163,29 @@ func TestJDBC_GSSEncModeOnlyWhenTLSRequired(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, sVerify, "sslmode=verify-full")
 	assert.Contains(t, sVerify, "gssEncMode=disable")
+}
+
+func TestJDBC_PreferAndAllowPreserved(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{postgres.SSLModePrefer, postgres.SSLModeAllow} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			p := baseParams()
+			p.SSLMode = mode
+			p.CACert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+			s, err := p.JDBC("")
+			require.NoError(t, err)
+			assert.Contains(t, s, "sslmode="+mode)
+			assert.NotContains(t, s, "sslmode=require")
+			assert.NotContains(t, s, "sslmode=disable")
+			assert.NotContains(t, s, "sslmode=verify-ca")
+			assert.NotContains(t, s, "sslrootcert=")
+			assert.Contains(t, s, "gssEncMode=disable")
+		})
+	}
 }
 
 func TestJDBC_BracketsIPv6Host(t *testing.T) {
