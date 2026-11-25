@@ -22,7 +22,11 @@ var (
 	ErrMissingKey = errors.New("missing or empty key in Secret")
 	// ErrInvalidPort is returned when port is not in 1-65535.
 	ErrInvalidPort = errors.New("invalid port")
-	// ErrUnsupportedSSLMode is returned when sslmode is not a supported libpq value.
+	// ErrUnsupportedSSLMode is returned when sslmode is not a supported libpq
+	// value, or when a libpq-valid mode is unsupported by the called operation.
+	// Parse rejects unknown modes; TLSConfig also returns this for allow and
+	// prefer, which are valid in libpq/JDBC but cannot be expressed as a
+	// tls.Config (no connection fallback).
 	ErrUnsupportedSSLMode = errors.New("unsupported sslmode")
 	// ErrCARequired is returned when verify-ca or verify-full is set without ca.crt.
 	ErrCARequired = errors.New("sslmode requires ca.crt")

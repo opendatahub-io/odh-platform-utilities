@@ -21,8 +21,13 @@ Choose one path after parse:
 
 | Caller | Path |
 |--------|------|
-| This process talks to Postgres (controller, job) | `TLSConfig` plus the driver's connect API |
+| This process, `sslmode` is `disable` / `require` / `verify-ca` / `verify-full` | `TLSConfig` plus the driver's connect API |
+| This process, `sslmode` is `allow` or `prefer` | Pass `sslmode` to the driver's own connect API (e.g. `Libpq`, or the driver's `sslmode` setting); do not call `TLSConfig` |
 | Another process needs a string (`psql`, pgJDBC, sidecar) | `WriteCACert` then `Libpq` or `JDBC` |
+
+`TLSConfig` cannot express opportunistic fallback. For `allow` and `prefer`,
+hand the mode to the driver's own negotiation (libpq, pgx, JDBC, and so on)
+so the driver can try plaintext-first or TLS-first and fall back.
 
 ## sslmode
 
@@ -32,9 +37,9 @@ Parse allows empty `sslmode` so administrator-authored Secrets still load.
 
 | Value | Meaning |
 |-------|---------|
-| `SSLModeDisable` | No TLS. Typical default for in-cluster traffic. |
-| `SSLModeAllow` | Opportunistic plaintext-first. Preserved in Libpq/JDBC; rejected by TLSConfig. |
-| `SSLModePrefer` | Opportunistic TLS-first. Preserved in Libpq/JDBC; rejected by TLSConfig. |
+| `SSLModeDisable` | No TLS. Typical default for in-cluster traffic. Supported by `TLSConfig` (returns `nil`). |
+| `SSLModeAllow` | Opportunistic plaintext-first. Use driver-native `sslmode` via `Libpq`/`JDBC`; `TLSConfig` returns `ErrUnsupportedSSLMode`. |
+| `SSLModePrefer` | Opportunistic TLS-first. Use driver-native `sslmode` via `Libpq`/`JDBC`; `TLSConfig` returns `ErrUnsupportedSSLMode`. |
 | `SSLModeRequire` | Encrypt only. Typical default for external traffic. With `ca.crt`, promoted to `verify-ca`. |
 | `SSLModeVerifyCA` | Encrypt and verify the server chain. Requires `ca.crt`. Does not check hostname. |
 | `SSLModeVerifyFull` | Encrypt, verify the chain, and check hostname. Requires `ca.crt`. |
@@ -46,7 +51,10 @@ posture.
 
 `TLSConfig` applies TLS from `ca.crt` in memory (no temp file). Pass the
 returned `*tls.Config` into the driver's TLS option. Apply `params.Schema` as
-`search_path` (or the driver's equivalent) when it is set.
+`search_path` (or the driver's equivalent) when it is set. Call this only for
+`disable`, `require`, `verify-ca`, and `verify-full`. For `allow` or `prefer`,
+skip `TLSConfig` and use the driver's native `sslmode` handling instead
+(see [WriteCACert → Libpq / JDBC](#writecacert--libpq--jdbc)).
 
 ```go
 params, err := postgres.ParseClaimSecret(secret)
@@ -55,6 +63,13 @@ if err != nil {
 }
 if params.SSLMode == "" {
     params.SSLMode = postgres.SSLModeRequire // or SSLModeDisable in-cluster
+}
+switch params.SSLMode {
+case postgres.SSLModeAllow, postgres.SSLModePrefer:
+    // Opportunistic modes: let the driver negotiate fallback.
+    // Build a Libpq/JDBC string (WriteCACert when a CA file is required)
+    // or pass params.SSLMode into the driver's own connect options.
+    return connectWithDriverSSLMode(params)
 }
 tlsCfg, err := params.TLSConfig()
 if err != nil {
