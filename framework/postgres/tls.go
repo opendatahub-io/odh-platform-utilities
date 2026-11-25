@@ -76,6 +76,11 @@ func (p Params) TLSConfig() (*tls.Config, error) {
 		return nil, err
 	}
 
+	if p.SSLMode == SSLModeAllow || p.SSLMode == SSLModePrefer {
+		return nil, fmt.Errorf("TLSConfig does not support sslmode %q: %w",
+			p.SSLMode, ErrUnsupportedSSLMode)
+	}
+
 	if !p.TLSEnabled() {
 		return nil, nil //nolint:nilnil // sslmode=disable is not an error.
 	}
@@ -115,7 +120,7 @@ func applySSLMode(cfg *tls.Config, mode string) {
 	case SSLModeVerifyFull:
 		cfg.InsecureSkipVerify = false
 		cfg.VerifyPeerCertificate = nil
-	case SSLModeRequire, SSLModePrefer, SSLModeAllow:
+	case SSLModeRequire:
 		// nosemgrep: go-tls-bypass -- intentional libpq require; no peer verify without CA.
 		cfg.InsecureSkipVerify = true
 		cfg.VerifyPeerCertificate = nil
