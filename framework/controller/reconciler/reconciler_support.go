@@ -239,9 +239,10 @@ func (b *ReconcilerBuilder[T]) WithoutStatusConditionsIf(pred func() bool) *Reco
 	return b
 }
 
-// WithPostStatusFn sets a callback that runs after conditions/phase are computed
-// but before the SSA status write. The hook receives the final isHappy value
-// and can set custom status fields on rr.Instance.
+// WithPostStatusFn sets a callback that runs after conditions, phase, and
+// ObservedGeneration are computed but before the SSA status write. The hook
+// receives the final isHappy value and can set custom status fields on
+// rr.Instance.
 func (b *ReconcilerBuilder[T]) WithPostStatusFn(fn PostStatusFn) *ReconcilerBuilder[T] {
 	b.reconcilerOpts = append(b.reconcilerOpts, WithPostStatusFn(fn))
 	return b
