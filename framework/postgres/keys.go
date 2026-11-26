@@ -26,6 +26,13 @@ const (
 
 	// SSLModeDisable disables TLS.
 	SSLModeDisable = "disable"
+	// SSLModeAllow tries plaintext first, then TLS if the server requires it.
+	// Preserved in Libpq/JDBC; rejected by TLSConfig (ErrUnsupportedSSLMode).
+	SSLModeAllow = "allow"
+	// SSLModePrefer tries TLS first, then falls back to plaintext if TLS is
+	// unavailable. Preserved in Libpq/JDBC; rejected by TLSConfig
+	// (ErrUnsupportedSSLMode).
+	SSLModePrefer = "prefer"
 	// SSLModeRequire encrypts only (libpq). With ca.crt, promoted to verify-ca.
 	SSLModeRequire = "require"
 	// SSLModeVerifyCA verifies the server certificate chain but not the hostname.

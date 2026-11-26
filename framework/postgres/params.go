@@ -22,7 +22,11 @@ var (
 	ErrMissingKey = errors.New("missing or empty key in Secret")
 	// ErrInvalidPort is returned when port is not in 1-65535.
 	ErrInvalidPort = errors.New("invalid port")
-	// ErrUnsupportedSSLMode is returned when sslmode is not a supported libpq value.
+	// ErrUnsupportedSSLMode is returned when sslmode is not a supported libpq
+	// value, or when a libpq-valid mode is unsupported by the called operation.
+	// Parse rejects unknown modes; TLSConfig also returns this for allow and
+	// prefer, which are valid in libpq/JDBC but cannot be expressed as a
+	// tls.Config (no connection fallback).
 	ErrUnsupportedSSLMode = errors.New("unsupported sslmode")
 	// ErrCARequired is returned when verify-ca or verify-full is set without ca.crt.
 	ErrCARequired = errors.New("sslmode requires ca.crt")
@@ -181,7 +185,7 @@ func validateHost(p Params) error {
 
 func validateSSLMode(p Params) error {
 	switch p.SSLMode {
-	case "", SSLModeDisable, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
+	case "", SSLModeDisable, SSLModeAllow, SSLModePrefer, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
 	default:
 		return fmt.Errorf("unsupported %s value %q: %w", SecretKeySSLMode, p.SSLMode, ErrUnsupportedSSLMode)
 	}
@@ -220,7 +224,8 @@ func (p Params) TLSReady() bool {
 }
 
 // requireSSLMode fails closed when sslmode is absent. Used by TLSConfig so
-// callers never inherit libpq prefer (TLS-then-plaintext).
+// callers never inherit an unspecified driver default. An explicit Secret
+// prefer/allow value is valid and must be set by the caller or Secret.
 func (p Params) requireSSLMode() error {
 	if p.SSLMode == "" {
 		return fmt.Errorf("missing or empty key %q in Secret: %w", SecretKeySSLMode, ErrSSLModeRequired)

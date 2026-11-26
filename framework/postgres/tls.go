@@ -65,6 +65,10 @@ func (p Params) WriteCACert(dir string) (path string, cleanup func(), err error)
 // encrypts without peer auth; require+CA promotes to verify-ca; verify-ca checks
 // chain only; verify-full also checks hostname. Empty sslmode is rejected.
 // Returns (nil, nil) for disable.
+//
+// allow and prefer return ErrUnsupportedSSLMode: a tls.Config cannot express
+// libpq's opportunistic connection fallback (plaintext-first or TLS-first).
+// Use the driver's native sslmode handling (for example Libpq) for those modes.
 func (p Params) TLSConfig() (*tls.Config, error) {
 	err := p.Validate()
 	if err != nil {
@@ -74,6 +78,11 @@ func (p Params) TLSConfig() (*tls.Config, error) {
 	err = p.requireSSLMode()
 	if err != nil {
 		return nil, err
+	}
+
+	if p.SSLMode == SSLModeAllow || p.SSLMode == SSLModePrefer {
+		return nil, fmt.Errorf("TLSConfig does not support sslmode %q: %w",
+			p.SSLMode, ErrUnsupportedSSLMode)
 	}
 
 	if !p.TLSEnabled() {

@@ -24,6 +24,8 @@ func TestSSLModeConstants(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "disable", postgres.SSLModeDisable)
+	assert.Equal(t, "allow", postgres.SSLModeAllow)
+	assert.Equal(t, "prefer", postgres.SSLModePrefer)
 	assert.Equal(t, "require", postgres.SSLModeRequire)
 	assert.Equal(t, "verify-ca", postgres.SSLModeVerifyCA)
 	assert.Equal(t, "verify-full", postgres.SSLModeVerifyFull)
