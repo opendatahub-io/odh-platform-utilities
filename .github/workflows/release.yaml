@@ -21,19 +21,19 @@ jobs:
 
       - name: Set up Go for root module
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
 
       - name: Set up Go for framework module
         if: startsWith(github.ref, 'refs/tags/framework/v')
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: framework/go.mod
 
       - name: Set up Go for framework/testing module
         if: startsWith(github.ref, 'refs/tags/framework/testing/v')
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: framework/testing/go.mod
 
