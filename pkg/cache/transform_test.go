@@ -3,6 +3,7 @@ package cache_test
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -71,6 +72,134 @@ func TestStripUnusedFieldsPassesThroughNonKubernetesObjects(t *testing.T) {
 
 	transform := cachepkg.StripUnusedFields()
 	out, err := transform(obj)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(out).Should(BeIdenticalTo(obj))
+	g.Expect(obj.value).Should(Equal("unchanged"))
+}
+
+func TestStripDataRemovesTypedPayload(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		obj  metav1.Object
+		name string
+	}{
+		{
+			name: "ConfigMap",
+			obj: &corev1.ConfigMap{
+				Data:       map[string]string{"key": "value"},
+				BinaryData: map[string][]byte{"bin": []byte("value")},
+			},
+		},
+		{
+			name: "Secret",
+			obj: &corev1.Secret{
+				Data: map[string][]byte{"tls.crt": []byte("cert")},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			tt.obj.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager"}})
+			tt.obj.SetAnnotations(map[string]string{
+				cachepkg.AnnotationLastAppliedConfiguration: "{}",
+				"keep": "value",
+			})
+
+			out, err := cachepkg.StripData()(tt.obj)
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(out).Should(BeIdenticalTo(tt.obj))
+
+			switch o := tt.obj.(type) {
+			case *corev1.ConfigMap:
+				g.Expect(o.Data).Should(BeNil())
+				g.Expect(o.BinaryData).Should(BeNil())
+			case *corev1.Secret:
+				g.Expect(o.Data).Should(BeNil())
+			}
+
+			g.Expect(tt.obj.GetManagedFields()).Should(BeNil())
+			g.Expect(tt.obj.GetAnnotations()).Should(Equal(map[string]string{"keep": "value"}))
+		})
+	}
+}
+
+func TestStripDataRemovesUnstructuredPayload(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{"ConfigMap", "Secret"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			obj := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "v1",
+				"kind":       kind,
+				"metadata":   map[string]any{"name": "obj", "namespace": "default"},
+				"data":       map[string]any{"key": "dmFsdWU="},
+				"binaryData": map[string]any{"bin": "dmFsdWU="},
+				"type":       "Opaque",
+			}}
+			obj.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager"}})
+
+			out, err := cachepkg.StripData()(obj)
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(out).Should(BeIdenticalTo(obj))
+
+			g.Expect(obj.Object).ShouldNot(HaveKey("data"))
+			g.Expect(obj.Object).ShouldNot(HaveKey("binaryData"))
+			g.Expect(obj.Object).Should(HaveKeyWithValue("type", "Opaque"))
+			g.Expect(obj.GetName()).Should(Equal("obj"))
+			g.Expect(obj.GetManagedFields()).Should(BeNil())
+		})
+	}
+}
+
+func TestStripDataKeepsDataOfOtherKinds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		apiVersion string
+		kind       string
+	}{
+		{name: "core kind without payload", apiVersion: "v1", kind: "Service"},
+		{name: "ConfigMap kind in another group", apiVersion: "example.com/v1", kind: "ConfigMap"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			obj := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": tt.apiVersion,
+				"kind":       tt.kind,
+				"metadata":   map[string]any{"name": "obj"},
+				"data":       map[string]any{"key": "value"},
+			}}
+			obj.SetManagedFields([]metav1.ManagedFieldsEntry{{Manager: "manager"}})
+
+			_, err := cachepkg.StripData()(obj)
+			g.Expect(err).ShouldNot(HaveOccurred())
+
+			g.Expect(obj.Object).Should(HaveKeyWithValue("data", map[string]any{"key": "value"}))
+			g.Expect(obj.GetManagedFields()).Should(BeNil())
+		})
+	}
+}
+
+func TestStripDataPassesThroughNonKubernetesObjects(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	obj := &nonKubernetesObject{value: "unchanged"}
+
+	out, err := cachepkg.StripData()(obj)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(out).Should(BeIdenticalTo(obj))
 	g.Expect(obj.value).Should(Equal("unchanged"))
