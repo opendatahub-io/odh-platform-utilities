@@ -60,6 +60,9 @@ api/
                    (Validate, ValidatePlatformObject).
 
 pkg/
+  cache/           Informer cache memory helpers (NewOptions,
+                   WithStrictInformers, ByObjectBuilder, StripUnusedFields,
+                   StripData). See docs/module-operator-scenarios.md §12.
   cluster/         Singleton enforcement, metadata options, dynamic ownership
                    (GetSingleton[T], MetaOptions, OwnerRefFrom, ControlledBy,
                    OwnedBy, WithOwnerAnnotations, EnqueueByOwnerAnnotation).

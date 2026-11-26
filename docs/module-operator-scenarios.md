@@ -30,6 +30,7 @@ Each scenario is self-contained. Read only the sections relevant to your module.
 9. [Upgrade and Migration](#9-upgrade-and-migration)
 10. [Testing Patterns](#10-testing-patterns)
 11. [TLS Configuration](#11-tls-configuration)
+12. [Cache and Memory Management](#12-cache-and-memory-management)
 
 ---
 
@@ -1573,6 +1574,258 @@ orchestrator projects cluster TLS policy into module CR fields
 
 ---
 
+## 12. Cache and Memory Management
+
+**Context:** Every informer your manager starts holds a full LIST and a
+long-lived WATCH against the API server. A cluster-wide informer on a
+high-cardinality type (Secret, ConfigMap, Deployment, Namespace, ...) grows
+with the cluster, not with your module. On clusters with thousands of
+namespaces this showed up as large kube-apiserver and etcd memory growth,
+even with every component `Removed` (RHOAIENG-83243). Each module operator
+runs its own manager and cache, so each one has to scope its informers.
+
+Root-module helpers live in `pkg/cache`:
+
+- `NewOptions` returns `cache.Options` with `StripUnusedFields` as the default
+  transform. `WithStrictInformers` turns on `ReaderFailOnMissingInformer`.
+- `NewByObjectBuilder` builds a `ByObject` map. It rejects any entry that has
+  no namespace, label, or field scope, and also the all-namespaces namespace
+  and match-everything selectors.
+- `StripData` is a per-type transform that drops ConfigMap/Secret payloads
+  from the cache.
+
+### Anti-Patterns
+
+These follow
+[5 anti-patterns that cause Kubernetes operator vulnerabilities](https://developers.redhat.com/articles/2026/07/06/5-anti-patterns-cause-kubernetes-operator-vulnerabilities).
+
+**1. "My predicate filters it."** Predicates filter *events* that reach the
+reconciler, not what the informer lists, watches, and stores. A `Watches()` on
+Secrets with a predicate matching one name still caches every Secret in the
+cluster. Scope the cache (`ByObject` label selector or namespaces), or read the
+object with `mgr.GetAPIReader()` if you don't need its events.
+
+```go
+// Bad: caches every Secret; the predicate only filters events.
+b.WatchesGVK(gvk.Secret, reconciler.WithPredicates(isMySecret))
+
+// Good: one-off read, no informer.
+err := mgr.GetAPIReader().Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, secret)
+```
+
+**2. "DisableFor turns caching off."** `client.CacheOptions.DisableFor` only
+affects `Get`/`List` through the manager client. `For()`, `Owns()`, and
+`Watches()` still create informers for those types.
+
+```go
+ctrl.Options{Client: client.Options{Cache: &client.CacheOptions{
+    DisableFor: []client.Object{&corev1.ConfigMap{}}, // reads skip the cache
+}}}
+
+b.Owns(&corev1.ConfigMap{}) // still starts a cluster-wide ConfigMap informer
+```
+
+**3. The invisible informer from `client.Get()`.** If a type has no informer,
+the first cached `Get`/`List` on it silently starts an *unfiltered,
+cluster-wide* one. The framework client (`framework/client`) converts typed
+`Get`/`List` calls to unstructured ones. Whether those reads use the cache
+depends on the client options:
+
+- By default, controller-runtime sends unstructured reads straight to the API
+  server. No informer is created, but every reconcile makes live API calls,
+  including the deploy action's lookup of each rendered resource.
+- With `client.CacheOptions{Unstructured: true}` (the ODH Operator setting,
+  and the one in [Recommended Setup](#recommended-setup)), reads use the
+  cache. Any type the module reads but doesn't watch then gets a cluster-wide
+  unstructured informer.
+
+One exception applies in both cases: a framework-client `List` with a field
+selector goes through the *typed* cache and creates a typed informer.
+
+For every type you read without watching it, either add it to `DisableFor`
+or read it through `mgr.GetAPIReader()`. A `ByObject` entry only bounds the
+informer once something creates it. With `Unstructured: true`, run envtest
+suites with `WithStrictInformers` to turn these reads into
+`ErrResourceNotCached` errors.
+
+```go
+// Bad: ConfigMaps are never watched, so this starts a cluster-wide informer.
+err := mgr.GetClient().Get(ctx, key, &corev1.ConfigMap{})
+
+// Good: uncached read.
+err := mgr.GetAPIReader().Get(ctx, key, &corev1.ConfigMap{})
+```
+
+**4. Cluster-wide by default.** With no `DefaultNamespaces` and no `ByObject`
+entry, every informer covers all namespaces. Scope every high-cardinality type
+explicitly (see [Choosing a Scope](#choosing-a-scope)).
+
+```go
+// Bad: every informer covers all namespaces.
+cacheOpts := cachepkg.NewOptions()
+
+// Good: each high-cardinality type is scoped.
+cacheOpts.ByObject, err = cachepkg.NewByObjectBuilder().
+    Add(&appsv1.Deployment{}, cachepkg.InNamespaces(appNS)).
+    Add(&corev1.Secret{}, cachepkg.WithLabelSelector(partOf)).
+    Build()
+```
+
+**5. Caching more than you read.** Typed, unstructured, and metadata-only
+objects use separate informers. If you only need a type as a reconcile
+trigger, watch it metadata-only so the cache holds `PartialObjectMetadata`
+instead of full objects. In the framework, register it as a raw source:
+
+```go
+builder.WatchesRawSource(source.Kind[client.Object](
+    mgr.GetCache(),
+    resources.GvkToPartial(gvk.ConfigMap), // framework/resources
+    handlers.ToNamed(componentName),
+    myPredicate,
+))
+```
+
+Read the full object with `mgr.GetAPIReader()` when you need it. In
+plain controller-runtime, use `builder.WatchesMetadata`. If you do read a type
+from the cache, watch and read it in the same form. With `Unstructured: true`,
+the framework client does this for typed reads of types the framework watches.
+
+### Recommended Setup
+
+```go
+import (
+    cachepkg "github.com/opendatahub-io/odh-platform-utilities/pkg/cache"
+)
+
+partOf := k8slabels.SelectorFromSet(k8slabels.Set{ // k8s.io/apimachinery/pkg/labels
+    "app.opendatahub.io/mymodule": "true",
+})
+
+byObject, err := cachepkg.NewByObjectBuilder().
+    // Fixed namespaces the module deploys into.
+    Add(&appsv1.Deployment{}, cachepkg.InNamespaces(appNS, monitoringNS)).
+    // Trigger-only Secrets: payload never read from the cache.
+    Add(&corev1.Secret{},
+        cachepkg.InNamespaces(appNS),
+        cachepkg.WithTransform(cachepkg.StripData())).
+    // Resources the module manages in user namespaces: label-scoped.
+    Add(&corev1.ConfigMap{}, cachepkg.WithLabelSelector(partOf)).
+    // Cluster-scoped types: label or field selector, never namespaces.
+    Add(&rbacv1.ClusterRole{}, cachepkg.WithLabelSelector(partOf)).
+    // Known singleton: field selector on its name.
+    Add(&configv1.Authentication{},
+        cachepkg.WithFieldSelector(fields.OneTermEqualSelector("metadata.name", "cluster"))).
+    Build()
+if err != nil {
+    return fmt.Errorf("invalid cache scope: %w", err)
+}
+
+cacheOpts := cachepkg.NewOptions()
+cacheOpts.ByObject = byObject
+
+mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+    Scheme: scheme,
+    Cache:  cacheOpts,
+    Client: client.Options{
+        // Serve the framework client's unstructured reads from the
+        // informers the framework's watches populate.
+        Cache: &client.CacheOptions{Unstructured: true},
+    },
+})
+```
+
+`framework/manager.New` wraps an already-constructed manager, so cache and
+client options must be set on the `ctrl.Options` passed to `ctrl.NewManager`.
+
+A positive in-tree reference is the ConfigMap handling in the
+`certconfigmapgenerator` controller in `opendatahub-operator`
+(`internal/controller/services/certconfigmapgenerator`). It uses a dedicated
+cache with strict reads and a label plus field selector on ConfigMaps, watches
+those ConfigMaps metadata-only, and writes them with server-side apply instead
+of reading them back. Copy only that part: the same controller still watches
+all Namespaces through the shared cache.
+
+### Choosing a Scope
+
+| Module behavior | Scope | Why |
+|-----------------|-------|-----|
+| Creates and reads the type only in fixed, known namespaces | `InNamespaces` | Smallest cache. |
+| Manages the type in user namespaces | `WithLabelSelector` on a label you stamp | Namespace lists can't cover arbitrary user namespaces. |
+| Cluster-scoped type | `WithLabelSelector` | Namespaces must be unset; controller-runtime rejects them. |
+| Known object by name (e.g. a cluster singleton) | `WithFieldSelector` on `metadata.name` | Caches exactly one object. The API server supports field selectors on only a few fields per type. |
+| Reads a type rarely, needs no events | Neither: `mgr.GetAPIReader()` or `DisableFor` | No informer at all. |
+
+Every scope hides objects from the cached client, and `WithStrictInformers`
+doesn't catch any of it, because the informer exists:
+
+- **Namespace scope:** a `Get`, or a namespaced `List`, outside the set
+  returns an `unknown namespace for the cache` error. That is not NotFound, so
+  the deploy action treats it as a failed lookup. An all-namespaces `List`
+  fails silently and returns only the objects inside the set. In the ODH
+  Operator, scoping `OperatorCondition` to the ODH namespaces hid operators
+  installed into their own namespaces, and dependency detection reported them
+  as missing (RHOAIENG-87671).
+- **Label or field scope:** objects that don't match are NotFound from the
+  cache. For example, an existing unlabeled object the module is about to
+  adopt looks absent.
+
+Before scoping a type, check every read of it.
+
+### Strict Informers
+
+`WithStrictInformers` is off by default because it changes failure behavior:
+a cached read with no matching informer returns `ErrResourceNotCached` instead
+of starting a cluster-wide informer. It only affects reads the cache serves.
+For the framework client, that means the manager must use
+`client.CacheOptions{Unstructured: true}`; otherwise those reads go to the API
+server and strict mode doesn't apply to them. Enable it in envtest and
+development. Enable it in production only after confirming that every type
+read through the cache has its informer registered before its first read.
+
+With `Unstructured: true`, the framework deploy action reads each rendered
+resource from the cache before applying it. A type that is watched only dynamically
+(`WithDynamicOwnership`, or a watch registered with the `Dynamic(...)` option)
+has its informer registered by an action the builder appends *after* all user
+actions, including deploy. Under strict mode the deploy
+action fails first, so the informer never gets registered and the reconcile
+deadlocks. Either register static watches for every type the module deploys,
+or add the dynamically watched types to `DisableFor`.
+
+### Stripping Payloads
+
+`StripData` removes `.data`/`.binaryData` from cached ConfigMaps and Secrets.
+Since it replaces the default transform for that type, it also strips
+`managedFields`. Use it only for types whose payload the module never reads
+from the cache:
+
+- **Writes:** an object read from such a cache has no payload. An `Update`
+  built from it (read-modify-write) erases the live payload. The framework's
+  owner-reference cleanup in the deploy action does exactly that kind of
+  `Update`, so don't strip payloads of types the module deploys. Use server-side
+  apply or `Patch`, or re-read via `mgr.GetAPIReader()` before updating.
+- **Predicates:** content-based predicates such as
+  `SecretContentChangedPredicate` (used by `WatchesSecretByName`) compare
+  `.data`. With stripped payloads they never fire.
+- **Reads:** a manager-client `Get` served from the cache returns empty data. Read payloads
+  through `mgr.GetAPIReader()`.
+
+If you only need events, a metadata-only watch (anti-pattern 5) is usually the
+simpler choice.
+
+### Trade-offs
+
+The RHOAIENG-83243 root-cause analysis groups fixes by how much they can
+change behavior:
+
+| Change | Risk | Validation needed |
+|--------|------|-------------------|
+| `StripUnusedFields` default transform, metadata-only watches for trigger-only types | No behavior change | Unit tests |
+| `InNamespaces` scoping | Partial reads outside the set | Audit every read of the type; verify on a cluster |
+| `StripData` | Empty payloads on read and `Update` | Audit reads, writes, and predicates of the type |
+| `WithStrictInformers`, replacing watches with `GetAPIReader` | Changed retrieval path; reads can fail or get slower | Full reconcile on a cluster, including dynamically watched types |
+
+---
+
 ## Appendix: Quick Reference
 
 ### Import Paths
@@ -1581,6 +1834,7 @@ orchestrator projects cluster TLS policy into module CR fields
 // Root module — low-level utilities
 import (
     common   "github.com/opendatahub-io/odh-platform-utilities/api/common"
+    cachepkg "github.com/opendatahub-io/odh-platform-utilities/pkg/cache"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/openshift"
     "github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/olm"
